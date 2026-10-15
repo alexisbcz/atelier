@@ -115,7 +115,11 @@ var types = atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType
 func editor(doc atelier.Document, readOnly bool) h.Node {
 	return atelier.Designer(atelier.Config{Document: doc, Types: types, Class: "h-svh", ReadOnly: readOnly,
 		SaveURL: "/designs/sample", RenderURL: "/designs/render"},
-		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
+		atelier.Header(
+			atelier.PanelToggle(atelier.SideLeft, "Layers", lucide.Layers()),
+			atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu(),
+			atelier.PanelToggle(atelier.SideRight, "Inspector", lucide.SlidersHorizontal()),
+		),
 		atelier.Content(
 			atelier.Panel(atelier.SideLeft,
 				tabs.Tabs(tabs.Value("layers"), h.Class("gap-0"),

@@ -108,12 +108,25 @@ const (
 
 // Panel is a column of panes beside the canvas.
 func Panel(side Side, children ...any) h.Node {
-	border := "border-r"
+	// Full class names: Tailwind finds classes in the source as written.
+	border, edge := "border-r", "max-md:left-0"
 	if side == SideRight {
-		border = "border-l"
+		border, edge = "border-l", "max-md:right-0"
 	}
+	// On small screens a panel is an overlay sheet, opened by PanelToggle.
 	return h.Div(h.Data("slot", "atelier-panel"), h.Data("side", string(side)),
-		h.Class("flex w-64 shrink-0 flex-col overflow-y-auto bg-background "+border), h.Group(children...))
+		h.Class("flex w-64 shrink-0 flex-col overflow-y-auto bg-background "+border+
+			" max-md:absolute max-md:inset-y-0 max-md:z-30 max-md:hidden max-md:shadow-xl "+edge+
+			" max-md:data-[open=true]:flex"),
+		h.Group(children...))
+}
+
+// PanelToggle opens a panel on small screens (hidden from md up).
+func PanelToggle(side Side, label string, icon h.Node) h.Node {
+	return h.Button(h.Type("button"), h.Aria("label", label), h.Title(label),
+		Command("toggle-panel"), h.Data("atelier-side", string(side)),
+		h.Class("inline-flex size-8 items-center justify-center rounded-md hover:bg-accent md:hidden [&_svg]:size-4"),
+		icon)
 }
 
 // Pane groups controls in a panel. ForTypes, when given, shows the pane only

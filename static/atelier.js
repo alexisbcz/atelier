@@ -717,6 +717,7 @@ class Editor {
     on(this.canvas, "wheel", (e) => this.onWheel(e), { passive: false })
     on(this.canvas, "pointerdown", (e) => this.onPointerDown(e))
     on(this.canvas, "dblclick", (e) => this.onDoubleClick(e))
+    for (const type of ["pointerup", "pointercancel"]) on(window, type, (e) => this.touches?.size < 2 && this.touches.delete(e.pointerId))
     on(document, "paste", (e) => {
       if (this.readOnly || !this.root.isConnected) return
       const t = e.target
@@ -1160,6 +1161,12 @@ class Editor {
   }
 
   onPointerDown(e) {
+    for (const panel of this.root.querySelectorAll('[data-slot="atelier-panel"][data-open="true"]')) panel.dataset.open = "false"
+    if (e.pointerType === "touch") {
+      this.touches ??= new Map()
+      this.touches.set(e.pointerId, [e.clientX, e.clientY])
+      if (this.touches.size === 2) return this.pinch()
+    }
     if (e.button === 1 || (e.button === 0 && this.spaceDown)) return this.dragPan(e)
     if (e.button !== 0 || this.readOnly) return
     const handle = e.target.closest?.("[data-handle]")
@@ -1180,6 +1187,38 @@ class Editor {
     if (!this.selection.includes(l.id)) this.select([l.id])
     this.canvas.focus({ preventScroll: true })
     this.dragMove(e)
+  }
+
+  // Two fingers zoom around their midpoint and pan.
+  pinch() {
+    this.end()
+    const pts = () => [...this.touches.values()]
+    const mid = (p) => [(p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2]
+    const dist = (p) => Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1])
+    let last = pts()
+    const onMove = (ev) => {
+      if (!this.touches.has(ev.pointerId)) return
+      this.touches.set(ev.pointerId, [ev.clientX, ev.clientY])
+      const now = pts()
+      if (now.length < 2) return
+      const [mx, my] = mid(now)
+      const [lx, ly] = mid(last)
+      this.pan = [this.pan[0] + mx - lx, this.pan[1] + my - ly]
+      this.zoomTo(this.zoom * (dist(now) / (dist(last) || 1)), mx, my)
+      last = now
+    }
+    const onUp = (ev) => {
+      this.touches.delete(ev.pointerId)
+      if (this.touches.size < 2) {
+        this.canvas.removeEventListener("pointermove", onMove)
+        this.canvas.removeEventListener("pointerup", onUp)
+        this.canvas.removeEventListener("pointercancel", onUp)
+        this.touches.clear()
+      }
+    }
+    this.canvas.addEventListener("pointermove", onMove)
+    this.canvas.addEventListener("pointerup", onUp)
+    this.canvas.addEventListener("pointercancel", onUp)
   }
 
   track(e, move, up) {
@@ -1657,6 +1696,13 @@ class Editor {
         return this.addPage()
       case "delete-page":
         return this.deletePage()
+      case "toggle-panel": {
+        for (const panel of this.root.querySelectorAll('[data-slot="atelier-panel"]')) {
+          const open = panel.dataset.side === el.dataset.atelierSide && panel.dataset.open !== "true"
+          panel.dataset.open = String(open)
+        }
+        return
+      }
       case "insert":
         return this.insertTemplate(JSON.parse(el.dataset.atelierTemplate || "[]"))
       case "align":
