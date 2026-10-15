@@ -303,8 +303,8 @@ var FrameSizes = []struct {
 	Label         string
 	Width, Height int
 }{
-	{"Square post", 1080, 1080}, {"Portrait post", 1080, 1350}, {"Story", 1080, 1920},
-	{"Landscape", 1920, 1080}, {"Slide", 1280, 720}, {"A4 (96 dpi)", 794, 1123}, {"Letter (96 dpi)", 816, 1056},
+	{"Square", 1080, 1080}, {"Portrait", 1080, 1350}, {"Story", 1080, 1920},
+	{"Landscape", 1920, 1080}, {"Slide", 1280, 720}, {"A4", 794, 1123}, {"Letter", 816, 1056},
 }
 
 // ActionDocumentSize edits the frame size, with presets.
@@ -319,7 +319,7 @@ func ActionDocumentSize() h.Node {
 		h.Option(h.Value(""), "Custom"))
 	for _, p := range FrameSizes {
 		v := strconv.Itoa(p.Width) + "x" + strconv.Itoa(p.Height)
-		sel.Children(h.Option(h.Value(v), p.Label+" · "+strconv.Itoa(p.Width)+"×"+strconv.Itoa(p.Height)))
+		sel.Children(h.Option(h.Value(v), p.Label))
 	}
 	return h.Group(
 		Action("Preset", h.Label(h.Class(fieldClass+" relative pr-6"), sel,
@@ -334,7 +334,7 @@ func ActionAlign() h.Node {
 	b := func(label, edge string, icon func(children ...any) *h.Element) h.Node {
 		return CommandButton(label, "align", icon(), h.Data("atelier-edge", edge))
 	}
-	return Action("Align",
+	return h.Div(h.Data("slot", "atelier-action"), h.Class("flex items-center justify-between"),
 		b("Align left", "left", lucide.AlignStartVertical), b("Align centers horizontally", "center", lucide.AlignCenterVertical),
 		b("Align right", "right", lucide.AlignEndVertical), b("Align top", "top", lucide.AlignStartHorizontal),
 		b("Align middles", "middle", lucide.AlignCenterHorizontal), b("Align bottom", "bottom", lucide.AlignEndHorizontal),
