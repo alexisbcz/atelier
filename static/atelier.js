@@ -16,6 +16,27 @@ const MIN_ZOOM = 0.05
 const MAX_ZOOM = 8
 const HISTORY = 100
 
+// The effective value of unset properties, as shown by the actions (the
+// stylesheet's fallbacks).
+const DEFAULTS = {
+  "--opacity": "1",
+  "--filter-blur": "0",
+  "--filter-brightness": "100",
+  "--filter-contrast": "100",
+  "--filter-grayscale": "0",
+  "--filter-hue-rotate": "0",
+  "--filter-invert": "0",
+  "--filter-saturate": "100",
+  "--filter-sepia": "0",
+  "--padding": "0",
+  "--radius": "0",
+  "--letter-spacing": "0",
+  "--line-height": "1.2",
+  "--font-weight": "400",
+  "--text-align": "left",
+  "--object-fit": "cover",
+}
+
 const num = (v, d = 0) => {
   const n = parseFloat(v)
   return Number.isFinite(n) ? n : d
@@ -518,6 +539,7 @@ class Editor {
       if (cmd && this.root.contains(cmd)) this.command(cmd.dataset.atelierCommand, cmd)
     })
     this.root.atelier = this
+    this.bindControls()
     this.notify()
     return () => this.cleanups.forEach((fn) => fn())
   }
@@ -800,6 +822,127 @@ class Editor {
         return this.duplicateSelected()
       case "deselect":
         return this.select([])
+      case "clear":
+        return this.setVars(Object.fromEntries((el.dataset.atelierProps ?? "").split(/\s+/).filter(Boolean).map((p) => [p, ""])))
+      case "rotate": {
+        const l = this.selected()[0]
+        if (!l) return
+        let deg = (num(l.vars?.["--rotate"]) + num(el.dataset.atelierDegrees)) % 360
+        if (deg > 180) deg -= 360
+        if (deg <= -180) deg += 360
+        return this.setVars({ "--rotate": deg ? deg + "deg" : "" })
+      }
+      case "flip": {
+        const prop = el.dataset.atelierAxis === "y" ? "--scale-y" : "--scale-x"
+        const l = this.selected()[0]
+        if (!l) return
+        return this.setVars({ [prop]: num(l.vars?.[prop], 1) < 0 ? "" : "-1" })
+      }
+    }
+  }
+
+  // --- actions ----------------------------------------------------------
+
+  // The value a control shows for a property of a layer: the property
+  // without its unit, or the effective value for the box properties.
+  shown(l, prop, unit) {
+    const v = l.vars?.[prop]
+    if (v != null && v !== "") {
+      if (unit && String(v).endsWith(unit)) return String(round(num(v)))
+      return String(v)
+    }
+    if (prop in DEFAULTS) return DEFAULTS[prop]
+    const b = this.box(l)
+    switch (prop) {
+      case "--width":
+        return String(round(b.w))
+      case "--height":
+        return String(round(b.h))
+      case "--translate-x":
+      case "--translate-y":
+      case "--rotate":
+        return "0"
+    }
+    return ""
+  }
+
+  bindControls() {
+    const write = (el, isLive) => {
+      const prop = el.dataset.atelierVar
+      const unit = el.dataset.atelierUnit ?? ""
+      let v = el.value.trim()
+      if (unit && v !== "") {
+        const n = parseFloat(v)
+        if (!Number.isFinite(n)) return
+        v = round(n) + unit
+      }
+      this.setVars({ [prop]: v }, { live: isLive })
+    }
+    const onInput = (e) => {
+      const el = e.target
+      if (!this.root.contains(el) || !this.selection.length) return
+      if (el.dataset.atelierVar && !el.dataset.atelierSet) {
+        if (el.tagName === "SELECT") return
+        write(el, true)
+      } else if (el.dataset.atelierValue !== undefined) this.setValue(el.value, { live: true })
+    }
+    const onChange = (e) => {
+      const el = e.target
+      if (!this.root.contains(el) || !this.selection.length) return
+      if (el.tagName === "SELECT" && el.dataset.atelierVar) write(el, false)
+      else if (el.dataset.atelierVar || el.dataset.atelierValue !== undefined) this.end()
+    }
+    // Arrow keys step number fields (shift: 10).
+    const onKeyDown = (e) => {
+      const el = e.target
+      if (!el.dataset?.atelierVar || !el.dataset.atelierUnit || el.type === "range") return
+      if (e.key === "Enter") return el.blur()
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return
+      e.preventDefault()
+      const step = (e.shiftKey ? 10 : 1) * (e.key === "ArrowUp" ? 1 : -1)
+      el.value = String(round(num(el.value) + step))
+      write(el, true)
+      this.end()
+    }
+    const onClick = (e) => {
+      const el = e.target.closest?.("[data-atelier-set]")
+      if (!el || !this.root.contains(el) || !this.selection.length) return
+      this.setVars({ [el.dataset.atelierVar]: el.dataset.atelierSet })
+    }
+    for (const [type, fn] of [["input", onInput], ["change", onChange], ["keydown", onKeyDown], ["click", onClick]]) {
+      this.root.addEventListener(type, fn)
+      this.cleanups.push(() => this.root.removeEventListener(type, fn))
+    }
+    this.cleanups.push(this.subscribe(() => this.updateControls()))
+  }
+
+  updateControls() {
+    const l = this.selected()[0]
+    const types = new Set(this.selected().map((x) => x.type))
+    for (const pane of this.root.querySelectorAll('[data-slot="atelier-pane"][data-for-types]')) {
+      const want = JSON.parse(pane.dataset.forTypes)
+      pane.dataset.hidden = String(!want.some((t) => types.has(t)))
+    }
+    for (const el of this.root.querySelectorAll("[data-atelier-var]")) {
+      const prop = el.dataset.atelierVar
+      if (el.dataset.atelierSet !== undefined) {
+        el.dataset.active = String(!!l && (l.vars?.[prop] ?? "") === el.dataset.atelierSet)
+        el.disabled = !l
+        continue
+      }
+      el.disabled = !l
+      if (el === document.activeElement && el.type !== "range") continue
+      const v = l ? this.shown(l, prop, el.dataset.atelierUnit) : ""
+      if (el.type === "color") {
+        if (/^#[0-9a-f]{6}$/i.test(v)) el.value = v
+      } else if (el.value !== v) el.value = v
+    }
+    for (const sw of this.root.querySelectorAll("[data-atelier-swatch]")) {
+      sw.style.background = (l && l.vars?.[sw.dataset.atelierSwatch]) || "transparent"
+    }
+    for (const el of this.root.querySelectorAll("[data-atelier-value]")) {
+      el.disabled = !l
+      if (el !== document.activeElement && el.value !== (l?.value ?? "")) el.value = l?.value ?? ""
     }
   }
 }
