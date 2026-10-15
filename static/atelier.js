@@ -194,7 +194,9 @@ class Editor {
     l.type = type
     l.name ||= t.name
     l.vars ??= {}
-    Object.assign(l, init)
+    const { vars, ...rest } = init
+    Object.assign(l, rest)
+    Object.assign(l.vars, vars ?? {})
     // Centered in the frame.
     const w = num(l.vars["--at-width"], 200)
     const h = num(l.vars["--at-height"], 100)
@@ -571,6 +573,14 @@ class Editor {
     on(this.canvas, "wheel", (e) => this.onWheel(e), { passive: false })
     on(this.canvas, "pointerdown", (e) => this.onPointerDown(e))
     on(this.canvas, "dblclick", (e) => this.onDoubleClick(e))
+    on(this.canvas, "dragover", (e) => {
+      if (!this.readOnly && [...(e.dataTransfer?.items ?? [])].some((i) => i.kind === "file")) e.preventDefault()
+    })
+    on(this.canvas, "drop", (e) => {
+      if (this.readOnly || !e.dataTransfer?.files?.length) return
+      e.preventDefault()
+      this.dropFiles([...e.dataTransfer.files], e.clientX, e.clientY)
+    })
     on(window, "keydown", (e) => this.onKey(e))
     // Commands come from buttons in the editor and from menu items, which
     // menus render in portals outside it: those go to the only editor of
@@ -834,10 +844,7 @@ class Editor {
     if (this.editing && this.editing.contains(e.target)) return
     this.stopEditing()
     const l = this.hit(e.target)
-    if (!l) {
-      this.select([])
-      return
-    }
+    if (!l) return this.dragMarquee(e)
     if (e.shiftKey) {
       const ids = this.selection.includes(l.id) ? this.selection.filter((i) => i !== l.id) : [...this.selection, l.id]
       this.select(ids)
@@ -882,6 +889,8 @@ class Editor {
   dragMove(e) {
     const start = [e.clientX, e.clientY]
     const origin = this.selected().map((l) => [l.id, num(l.vars?.["--at-x"]), num(l.vars?.["--at-y"])])
+    const bounds = this.bounds(this.selected())
+    this.snapTargets = this.targets(new Set(this.selection))
     let moved = false
     this.track(
       e,
@@ -891,18 +900,218 @@ class Editor {
         if (!moved && Math.hypot(dx * this.zoom, dy * this.zoom) < 3) return
         moved = true
         this.begin()
+        // Snap the selection's bounds (alt: no snapping).
+        const [sx, sy, guides] = ev.altKey ? [0, 0, []] : this.snap(bounds, dx, dy)
         for (const [id, x, y] of origin) {
           const l = this.layer(id)
           if (!l) continue
           l.vars ??= {}
-          l.vars["--at-x"] = px(x + dx)
-          l.vars["--at-y"] = px(y + dy)
+          l.vars["--at-x"] = px(x + dx + sx)
+          l.vars["--at-y"] = px(y + dy + sy)
         }
         this.sync()
+        this.drawGuides(guides)
         this.notify()
       },
-      () => this.end(),
+      () => {
+        this.drawGuides([])
+        this.end()
+      },
     )
+  }
+
+  // The axis-aligned bounds of layers (rotation included), frame coordinates.
+  bounds(layers) {
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const l of layers) {
+      const b = this.box(l)
+      const c = [b.x + b.w / 2, b.y + b.h / 2]
+      for (const p of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const [rx, ry] = rotate([(p[0] * b.w) / 2, (p[1] * b.h) / 2], b.r)
+        x0 = Math.min(x0, c[0] + rx)
+        x1 = Math.max(x1, c[0] + rx)
+        y0 = Math.min(y0, c[1] + ry)
+        y1 = Math.max(y1, c[1] + ry)
+      }
+    }
+    return { x0, y0, x1, y1 }
+  }
+
+  // Lines to snap to: the frame's edges and center, and every other
+  // visible layer's edges and center.
+  targets(exclude) {
+    const xs = [0, this.doc.width / 2, this.doc.width]
+    const ys = [0, this.doc.height / 2, this.doc.height]
+    for (const l of this.doc.layers) {
+      if (exclude.has(l.id) || l.hidden) continue
+      const b = this.bounds([l])
+      xs.push(b.x0, (b.x0 + b.x1) / 2, b.x1)
+      ys.push(b.y0, (b.y0 + b.y1) / 2, b.y1)
+    }
+    return { xs, ys }
+  }
+
+  // The correction snapping bounds moved by (dx, dy) to the nearest
+  // targets within 6 screen pixels, and the guides to draw.
+  snap(b, dx, dy) {
+    const t = this.snapTargets
+    const limit = 6 / this.zoom
+    const best = (edges, lines) => {
+      let d = Infinity
+      for (const e of edges) for (const l of lines) if (Math.abs(l - e) < Math.abs(d)) d = l - e
+      return Math.abs(d) <= limit ? d : 0
+    }
+    const ex = [b.x0 + dx, (b.x0 + b.x1) / 2 + dx, b.x1 + dx]
+    const ey = [b.y0 + dy, (b.y0 + b.y1) / 2 + dy, b.y1 + dy]
+    const sx = best(ex, t.xs)
+    const sy = best(ey, t.ys)
+    const guides = []
+    const eps = 0.01
+    if (sx || ex.some((e) => t.xs.some((l) => Math.abs(l - e) < eps))) {
+      for (const e of ex) for (const l of t.xs) if (Math.abs(l - (e + sx)) < eps) guides.push(["x", l])
+    }
+    if (sy || ey.some((e) => t.ys.some((l) => Math.abs(l - e) < eps))) {
+      for (const e of ey) for (const l of t.ys) if (Math.abs(l - (e + sy)) < eps) guides.push(["y", l])
+    }
+    return [sx, sy, guides]
+  }
+
+  drawGuides(guides) {
+    for (const g of this.overlay.querySelectorAll("[data-atelier-guide]")) g.remove()
+    for (const [axis, v] of guides) {
+      const g = document.createElement("div")
+      g.dataset.atelierGuide = axis
+      const pos = (axis === "x" ? this.pan[0] : this.pan[1]) + v * this.zoom
+      Object.assign(g.style, {
+        position: "absolute",
+        background: "#ec4899",
+        pointerEvents: "none",
+        ...(axis === "x" ? { left: pos + "px", top: 0, bottom: 0, width: "1px" } : { top: pos + "px", left: 0, right: 0, height: "1px" }),
+      })
+      this.overlay.append(g)
+    }
+  }
+
+  // Dragging on empty canvas selects the layers the rectangle touches.
+  dragMarquee(e) {
+    const r = this.canvas.getBoundingClientRect()
+    const [fx, fy] = this.toFrame(e.clientX, e.clientY)
+    const box = document.createElement("div")
+    box.dataset.atelierMarquee = ""
+    Object.assign(box.style, { position: "absolute", border: "1px solid #3b82f6", background: "rgb(59 130 246 / 0.08)", pointerEvents: "none" })
+    const base = e.shiftKey ? [...this.selection] : []
+    let shown = false
+    this.track(
+      e,
+      (ev) => {
+        const [gx, gy] = this.toFrame(ev.clientX, ev.clientY)
+        if (!shown) {
+          if (Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 3) return
+          shown = true
+          this.overlay.append(box)
+        }
+        const x0 = Math.min(fx, gx)
+        const y0 = Math.min(fy, gy)
+        const x1 = Math.max(fx, gx)
+        const y1 = Math.max(fy, gy)
+        Object.assign(box.style, {
+          left: this.pan[0] + x0 * this.zoom + "px",
+          top: this.pan[1] + y0 * this.zoom + "px",
+          width: (x1 - x0) * this.zoom + "px",
+          height: (y1 - y0) * this.zoom + "px",
+        })
+        const hit = this.doc.layers
+          .filter((l) => !l.parent && !l.hidden && !l.locked)
+          .filter((l) => {
+            const b = this.bounds([l])
+            return b.x0 < x1 && b.x1 > x0 && b.y0 < y1 && b.y1 > y0
+          })
+          .map((l) => l.id)
+        this.selection = [...new Set([...base, ...hit])]
+        this.drawOverlay()
+        this.overlay.append(box)
+        this.notify()
+      },
+      () => {
+        box.remove()
+        if (!shown && !e.shiftKey) this.select([])
+      },
+    )
+  }
+
+  // Moves the selected layers among their siblings: +1 forward, -1
+  // backward, Infinity to the front, -Infinity to the back.
+  reorder(step) {
+    const ids = new Set(this.selection)
+    if (!ids.size) return
+    this.commit((d) => {
+      const groups = new Map()
+      for (const l of d.layers) {
+        const k = l.parent ?? ""
+        if (!groups.has(k)) groups.set(k, [])
+        groups.get(k).push(l)
+      }
+      const out = []
+      for (const [, sibs] of groups) {
+        let arr = [...sibs]
+        if (step === Infinity) arr = [...arr.filter((l) => !ids.has(l.id)), ...arr.filter((l) => ids.has(l.id))]
+        else if (step === -Infinity) arr = [...arr.filter((l) => ids.has(l.id)), ...arr.filter((l) => !ids.has(l.id))]
+        else if (step > 0) {
+          for (let i = arr.length - 2; i >= 0; i--) {
+            if (ids.has(arr[i].id) && !ids.has(arr[i + 1].id)) [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]
+          }
+        } else {
+          for (let i = 1; i < arr.length; i++) {
+            if (ids.has(arr[i].id) && !ids.has(arr[i - 1].id)) [arr[i], arr[i - 1]] = [arr[i - 1], arr[i]]
+          }
+        }
+        out.push(...arr)
+      }
+      d.layers = out
+    })
+  }
+
+  // Dropped image files become image layers: uploaded to
+  // config.uploadURL (which answers {"url": ...}), or inlined.
+  async dropFiles(files, clientX, clientY) {
+    const [fx, fy] = this.toFrame(clientX, clientY)
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) continue
+      let url
+      try {
+        if (this.config.uploadURL) {
+          const body = new FormData()
+          body.append("file", file)
+          const res = await fetch(this.config.uploadURL, { method: "POST", body, credentials: "same-origin" })
+          if (!res.ok) throw new Error("upload: " + res.status)
+          url = (await res.json()).url
+        } else {
+          url = await new Promise((res, rej) => {
+            const r = new FileReader()
+            r.onload = () => res(r.result)
+            r.onerror = rej
+            r.readAsDataURL(file)
+          })
+        }
+        const img = new Image()
+        img.src = url
+        await img.decode().catch(() => {})
+        const max = Math.min(this.doc.width, this.doc.height) * 0.6
+        const s = Math.min(1, max / Math.max(img.naturalWidth || max, img.naturalHeight || max))
+        const w = (img.naturalWidth || max) * s
+        const h = (img.naturalHeight || max) * s
+        this.addLayer("image", {
+          name: file.name.replace(/\.[^.]+$/, ""),
+          value: url,
+          vars: { "--at-width": px(w), "--at-height": px(h), "--at-x": px(fx - w / 2), "--at-y": px(fy - h / 2), "--at-fit": "cover" },
+        })
+      } catch (err) {
+        console.error("[atelier] drop:", err)
+      }
+    }
   }
 
   dragResize(e, [hx, hy]) {
@@ -1036,6 +1245,8 @@ class Editor {
     if (mod && k === "0") return run(() => this.fit())
     if (this.readOnly) return
     if (mod && k === "d") return run(() => this.duplicateSelected())
+    if (mod && k === "]") return run(() => this.reorder(e.shiftKey ? Infinity : 1))
+    if (mod && k === "[") return run(() => this.reorder(e.shiftKey ? -Infinity : -1))
     if (mod && k === "a") return run(() => this.select(this.doc.layers.filter((l) => !l.parent).map((l) => l.id)))
     if (mod || e.altKey) return
     if (k === "escape") return run(() => this.select([]))
@@ -1082,6 +1293,14 @@ class Editor {
         return this.duplicateSelected()
       case "deselect":
         return this.select([])
+      case "forward":
+        return this.reorder(1)
+      case "backward":
+        return this.reorder(-1)
+      case "front":
+        return this.reorder(Infinity)
+      case "back":
+        return this.reorder(-Infinity)
       case "export-png":
         return this.exportPNG()
       case "export-pdf":

@@ -26,6 +26,10 @@ const (
 	CommandExportPDF  = "export-pdf"
 	CommandExportJSON = "export-json"
 	CommandShortcuts  = "shortcuts"
+	CommandForward    = "forward"
+	CommandBackward   = "backward"
+	CommandFront      = "front"
+	CommandBack       = "back"
 )
 
 // Command is the props of an element running a command.
@@ -115,7 +119,9 @@ func shortcutsDialog(types Types) h.Node {
 		row("Duplicate", mod()+" D"), row("Select all", mod()+" A"), row("Delete", "⌫"),
 		row("Nudge", "← ↑ → ↓"), row("Nudge by 10", "⇧ ← ↑ → ↓"),
 		row("Zoom in", mod()+" +"), row("Zoom out", mod()+" −"), row("Zoom to fit", mod()+" 0"),
-		row("Pan", "Space + drag"), row("Deselect", "Esc"),
+		row("Bring forward", mod()+" ]"), row("Send backward", mod()+" ["),
+		row("Bring to front", "⇧ "+mod()+" ]"), row("Send to back", "⇧ "+mod()+" ["),
+		row("Pan", "Space + drag"), row("Deselect", "Esc"), row("Move without snapping", "⌥ + drag"),
 	}
 	for _, t := range types {
 		if t.Key != "" {

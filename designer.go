@@ -21,6 +21,10 @@ type Config struct {
 	// RenderURL renders layers of custom types (types other than frame,
 	// text and image) in the browser: Handler serves it as {prefix}render.
 	RenderURL string
+	// UploadURL receives image files dropped on the canvas (multipart
+	// field "file") and answers {"url": "..."}. Without it, dropped images
+	// are stored inline as data URLs.
+	UploadURL string
 	// ReadOnly shows the document without editing.
 	ReadOnly bool
 	// Class adds classes to the root element ("h-svh").
@@ -66,7 +70,7 @@ func Designer(cfg Config, children ...any) h.Node {
 			"type": t.Type, "name": t.Name, "key": t.Key, "container": t.Container, "defaults": t.Defaults,
 		})
 	}
-	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "renderURL": cfg.RenderURL, "readOnly": cfg.ReadOnly})
+	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "renderURL": cfg.RenderURL, "uploadURL": cfg.UploadURL, "readOnly": cfg.ReadOnly})
 	return h.WithValue(designerKey{}, cfg,
 		h.Div(
 			h.Data("slot", "atelier"),
