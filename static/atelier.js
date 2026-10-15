@@ -848,6 +848,7 @@ class Editor {
         if (!row) return
         const id = row.dataset.layerRow
         const t = e.target.closest("[data-layer-toggle]")
+        if (t && this.readOnly) return
         if (t) {
           const kind = t.dataset.layerToggle
           this.commit((d) => {
@@ -869,7 +870,9 @@ class Editor {
         this.drawOverlay()
         this.notify()
       })
+      list.addEventListener("pointerdown", (e) => this.treeDrag(e, list))
       list.addEventListener("dblclick", (e) => {
+        if (this.readOnly) return
         const row = e.target.closest("[data-layer-row]")
         const name = row?.querySelector("span.truncate")
         if (!name) return
@@ -897,6 +900,98 @@ class Editor {
         input.addEventListener("blur", () => done(true))
       })
     }
+  }
+
+  // Dragging rows reorders layers: above or below a row, or into a frame
+  // (the middle of its row). Positions are converted so nothing moves.
+  treeDrag(e, list) {
+    if (this.readOnly || e.button !== 0 || e.target.closest("[data-layer-toggle], input")) return
+    const row = e.target.closest("[data-layer-row]")
+    if (!row) return
+    const startY = e.clientY
+    let moving = null
+    let drop = null
+    const line = document.createElement("div")
+    line.className = "pointer-events-none absolute right-2 left-2 h-0.5 rounded bg-blue-500"
+    const ring = "ring-2 ring-inset ring-blue-500"
+    list.style.position = "relative"
+    const clear = () => {
+      line.remove()
+      for (const r of list.querySelectorAll("[data-layer-row]")) r.classList.remove(...ring.split(" "))
+    }
+    const move = (ev) => {
+      if (!moving) {
+        if (Math.abs(ev.clientY - startY) < 4) return
+        const id = row.dataset.layerRow
+        moving = this.selection.includes(id) ? [...this.selection] : [id]
+      }
+      clear()
+      drop = null
+      const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("[data-layer-row]")
+      if (!target || !list.contains(target)) return
+      const tl = this.layer(target.dataset.layerRow)
+      // Never into itself or what it holds.
+      const inside = new Set(this.withDescendants(moving).map((l) => l.id))
+      if (!tl || inside.has(tl.id)) return
+      const r = target.getBoundingClientRect()
+      const f = (ev.clientY - r.top) / r.height
+      const container = this.types.get(tl.type)?.container
+      if (container && f > 0.25 && f < 0.75) {
+        drop = { into: tl.id }
+        target.classList.add(...ring.split(" "))
+        return
+      }
+      drop = { target: tl.id, above: f < 0.5 }
+      const lr = list.getBoundingClientRect()
+      line.style.top = (f < 0.5 ? r.top : r.bottom) - lr.top - 1 + "px"
+      list.append(line)
+    }
+    const up = () => {
+      document.removeEventListener("pointermove", move)
+      document.removeEventListener("pointerup", up)
+      clear()
+      if (moving && drop) this.moveLayers(moving, drop)
+    }
+    document.addEventListener("pointermove", move)
+    document.addEventListener("pointerup", up)
+  }
+
+  moveLayers(ids, drop) {
+    const target = drop.into ? this.layer(drop.into) : this.layer(drop.target)
+    const parent = drop.into ? drop.into : target.parent ?? ""
+    // Absolute frame position of a would-be parent.
+    const origin = (pid) => {
+      if (!pid) return [0, 0]
+      const b = this.box(this.layer(pid))
+      return [b.x, b.y]
+    }
+    const [px0, py0] = origin(parent)
+    const roots = ids.map((id) => this.layer(id)).filter((l) => l && !ids.includes(l.parent))
+    const abs = new Map(roots.map((l) => [l.id, this.box(l)]))
+    this.commit((d) => {
+      const moved = d.layers.filter((l) => roots.some((r) => r.id === l.id))
+      d.layers = d.layers.filter((l) => !moved.includes(l))
+      for (const l of moved) {
+        const b = abs.get(l.id)
+        l.vars ??= {}
+        l.vars["--at-x"] = px(b.x - px0)
+        l.vars["--at-y"] = px(b.y - py0)
+        if (parent) {
+          l.parent = parent
+          delete l.page
+        } else {
+          delete l.parent
+          if (this.page) l.page = this.page
+        }
+      }
+      if (drop.into) {
+        d.layers.push(...moved)
+        return
+      }
+      // The tree shows the topmost layer first: "above" paints after.
+      const i = d.layers.findIndex((l) => l.id === drop.target)
+      d.layers.splice(drop.above ? i + 1 : i, 0, ...moved)
+    })
   }
 
   // --- export -------------------------------------------------------------
@@ -1458,12 +1553,12 @@ class Editor {
       e.preventDefault()
       fn()
     }
-    if (mod && k === "z") return run(() => (e.shiftKey ? this.redo() : this.undo()))
-    if (mod && k === "y") return run(() => this.redo())
     if (mod && (k === "=" || k === "+")) return run(() => this.zoomTo(this.zoom * 1.25))
     if (mod && k === "-") return run(() => this.zoomTo(this.zoom / 1.25))
     if (mod && k === "0") return run(() => this.fit())
     if (this.readOnly) return
+    if (mod && k === "z") return run(() => (e.shiftKey ? this.redo() : this.undo()))
+    if (mod && k === "y") return run(() => this.redo())
     if (mod && k === "d") return run(() => this.duplicateSelected())
     if (mod && k === "c") return run(() => this.copy())
     if (mod && k === "x") return run(() => this.cut())
@@ -1495,6 +1590,9 @@ class Editor {
 
   // Commands from data-atelier-command buttons (toolbar, menus).
   command(name, el) {
+    // A read-only editor only views: zoom, pages and exports.
+    const viewing = ["zoom-in", "zoom-out", "zoom-fit", "zoom", "page", "export-png", "export-pdf", "export-json", "shortcuts", "copy"]
+    if (this.readOnly && !viewing.includes(name)) return
     switch (name) {
       case "undo":
         return this.undo()
@@ -1678,7 +1776,7 @@ class Editor {
   }
 
   updateControls() {
-    const l = this.selected()[0]
+    const l = this.readOnly ? null : this.selected()[0]
     const types = new Set(this.selected().map((x) => x.type))
     for (const pane of this.root.querySelectorAll('[data-slot="atelier-pane"][data-for-types]')) {
       const want = JSON.parse(pane.dataset.forTypes)

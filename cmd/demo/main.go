@@ -42,7 +42,7 @@ func main() {
 				atelier.Stylesheet(),
 				runtime.Scripts(r),
 			),
-			h.Body(editor(doc)),
+			h.Body(editor(doc, r.URL.Query().Has("readonly"))),
 		)
 		_ = h.WriteHTTP(w, http.StatusOK, page)
 	})
@@ -85,8 +85,8 @@ var badge = atelier.LayerType{
 
 var types = atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType, badge}
 
-func editor(doc atelier.Document) h.Node {
-	return atelier.Designer(atelier.Config{Document: doc, Types: types, Class: "h-svh",
+func editor(doc atelier.Document, readOnly bool) h.Node {
+	return atelier.Designer(atelier.Config{Document: doc, Types: types, Class: "h-svh", ReadOnly: readOnly,
 		SaveURL: "/designs/sample", RenderURL: "/designs/render"},
 		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
 		atelier.Content(
