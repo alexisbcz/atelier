@@ -29,16 +29,16 @@ type LayerType struct {
 	Key string
 }
 
-// Frame is a box holding other layers.
-var Frame = LayerType{
+// FrameType is a box holding other layers.
+var FrameType = LayerType{
 	Type: "frame", Name: "Frame", Icon: lucide.Frame, Container: true, Key: "f",
 	Defaults: Layer{Name: "Frame", Vars: map[string]string{
 		VarWidth: "400px", VarHeight: "300px", VarFill: "#e5e5e5",
 	}},
 }
 
-// Text is a block of text.
-var Text = LayerType{
+// TextType is a block of text.
+var TextType = LayerType{
 	Type: "text", Name: "Text", Icon: lucide.Type, Key: "t",
 	Defaults: Layer{Name: "Text", Value: "Text", Vars: map[string]string{
 		VarWidth: "320px", VarHeight: "96px", VarFontSize: "64px", VarFontWeight: "400",
@@ -49,8 +49,8 @@ var Text = LayerType{
 	},
 }
 
-// Image shows a picture.
-var Image = LayerType{
+// ImageType shows a picture.
+var ImageType = LayerType{
 	Type: "image", Name: "Image", Icon: lucide.Image, Key: "i",
 	Defaults: Layer{Name: "Image", Vars: map[string]string{
 		VarWidth: "400px", VarHeight: "300px", VarObjectFit: "cover",
@@ -64,7 +64,7 @@ var Image = LayerType{
 }
 
 // DefaultTypes are the built-in layer types.
-var DefaultTypes = []LayerType{Frame, Text, Image}
+var DefaultTypes = []LayerType{FrameType, TextType, ImageType}
 
 // Types is a registry of layer types by name.
 type Types []LayerType

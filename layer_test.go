@@ -77,7 +77,7 @@ func TestNewFromDefaults(t *testing.T) {
 		t.Errorf("New = %+v", l)
 	}
 	l.Vars[VarFontSize] = "1px"
-	if Text.Defaults.Vars[VarFontSize] != "64px" {
+	if TextType.Defaults.Vars[VarFontSize] != "64px" {
 		t.Error("New must copy the defaults")
 	}
 }

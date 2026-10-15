@@ -1,0 +1,82 @@
+/* Layers: every property comes from the layer's custom properties
+   (layer.go, Var*), so the server rendering and the editor agree. */
+
+.atelier-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: var(--flex-direction, column);
+  align-items: var(--align-items, stretch);
+  justify-content: var(--justify-content, flex-start);
+  gap: var(--gap, 0px);
+  width: var(--width, auto);
+  height: var(--height, auto);
+  padding: var(--padding, 0px);
+  overflow: hidden;
+  z-index: var(--z-index, 0);
+  opacity: var(--opacity, 1);
+  background: var(--fill, transparent);
+  border: var(--border-width, 0px) solid var(--border-color, transparent);
+  border-radius: var(--radius, 0px);
+  box-shadow: var(--shadow, none);
+  transform: translate(var(--translate-x, 0px), var(--translate-y, 0px)) rotate(var(--rotate, 0deg))
+    scale(var(--scale-x, 1), var(--scale-y, 1));
+  transform-origin: center;
+  filter: blur(var(--filter-blur, 0px)) brightness(var(--filter-brightness, 100%))
+    contrast(var(--filter-contrast, 100%)) grayscale(var(--filter-grayscale, 0%))
+    hue-rotate(var(--filter-hue-rotate, 0deg)) invert(var(--filter-invert, 0%))
+    saturate(var(--filter-saturate, 100%)) sepia(var(--filter-sepia, 0%));
+}
+
+/* Children of a frame are positioned inside it. */
+.atelier-layer > .atelier-layer {
+  position: absolute;
+}
+
+.atelier-layer-text {
+  justify-content: var(--align-items, center);
+  font-family: var(--font-family, inherit);
+  font-size: var(--font-size, 16px);
+  font-weight: var(--font-weight, 400);
+  font-style: var(--font-style, normal);
+  color: var(--color, #000000);
+  line-height: var(--line-height, 1.2);
+  letter-spacing: var(--letter-spacing, 0px);
+  text-align: var(--text-align, left);
+  text-decoration: var(--text-decoration, none);
+  text-transform: var(--text-transform, none);
+  text-shadow: var(--text-shadow, none);
+  -webkit-text-stroke: var(--text-stroke-width, 0px) var(--text-stroke-color, transparent);
+  overflow-wrap: break-word;
+}
+
+.atelier-layer-text [data-slot="atelier-text"] {
+  width: 100%;
+  white-space: pre-wrap;
+  outline: none;
+}
+
+.atelier-layer-image img,
+.atelier-layer-image [data-slot="atelier-image-empty"] {
+  width: 100%;
+  height: 100%;
+  object-fit: var(--object-fit, cover);
+  object-position: var(--object-position-x, 50%) var(--object-position-y, 50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+.atelier-layer-image [data-slot="atelier-image-empty"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e5e5;
+  color: #a3a3a3;
+}
+
+.atelier-layer-image [data-slot="atelier-image-empty"] svg {
+  width: 25%;
+  height: 25%;
+}
