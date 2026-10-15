@@ -21,6 +21,7 @@ runtime makes it interactive. It needs no Node.js and no build step.
 - Export to PNG, PDF (one page per document page) and JSON.
 - Works on phones and tablets: the panels open as sheets, and two fingers zoom and pan.
 - Custom layer types written in Go: the server renders them, in the editor too.
+- AI image generation that runs on your machine, about a second per image.
 - Saving through an HTTP handler, with memory and file stores and document validation.
 - One embedded stylesheet for the editor and its components: no Tailwind setup needed.
 
@@ -111,17 +112,46 @@ Pass the types to `Config.Types` and to `Handler`, and set
 
 ## Saving
 
-`Handler` serves documents from a `Store` and validates what it saves:
+`Handler` serves documents from a `Store` and validates what it saves. With
+a `MediaStore`, it also stores uploaded and generated images:
 
 ```go
 store := atelier.FileStore{Dir: "designs"}
-types := atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType, badge}
-http.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, types, atelier.Limits{})))
+http.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, atelier.HandlerOptions{
+	Types: atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType, badge},
+	Media: atelier.FileMedia{Dir: "media"},
+})))
 ```
 
-Set `Config.SaveURL` to `/designs/<id>`: the editor posts the document after
-each change. Protect the handler like any write endpoint, with a session
-check and CSRF protection.
+Set `Config.SaveURL` to `/designs/<id>` and `Config.UploadURL` to
+`/designs/upload`: the editor posts the document after each change, and
+uploads the images you drop or paste. Protect the handler like any write
+endpoint, with a session check and CSRF protection.
+
+## AI image generation
+
+The Generate pane turns a prompt into an image layer. Generation runs on
+your machine with
+[stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp): with
+SD-Turbo and the TAESD decoder, an image takes about a second on an Apple
+M-series laptop, at no cost per image.
+
+```sh
+scripts/local-ai.sh                              # builds the server, fetches the models, serves on :7860
+go run ./cmd/demo -sd http://127.0.0.1:7860
+```
+
+In your application, give the handler a generator and set
+`Config.GenerateURL`:
+
+```go
+opts.Generator = atelier.SDServer{URL: "http://127.0.0.1:7860"}
+// Config.GenerateURL: "/designs/generate"
+```
+
+Any type with a `Generate` method fits `ImageGenerator`, so other backends plug in. SD-Turbo allows
+non-commercial use only. The server runs any Stable Diffusion or FLUX
+model, so check the license of the model you choose.
 
 ## Actions and commands
 
