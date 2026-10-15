@@ -18,6 +18,9 @@ type Config struct {
 	// SaveURL, when set, receives the document as JSON (POST) after each
 	// change, debounced. See Handler.
 	SaveURL string
+	// RenderURL renders layers of custom types (types other than frame,
+	// text and image) in the browser: Handler serves it as {prefix}render.
+	RenderURL string
 	// ReadOnly shows the document without editing.
 	ReadOnly bool
 	// Class adds classes to the root element ("h-svh").
@@ -63,7 +66,7 @@ func Designer(cfg Config, children ...any) h.Node {
 			"type": t.Type, "name": t.Name, "key": t.Key, "container": t.Container, "defaults": t.Defaults,
 		})
 	}
-	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "readOnly": cfg.ReadOnly})
+	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "renderURL": cfg.RenderURL, "readOnly": cfg.ReadOnly})
 	return h.WithValue(designerKey{}, cfg,
 		h.Div(
 			h.Data("slot", "atelier"),

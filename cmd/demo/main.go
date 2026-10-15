@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -19,7 +20,20 @@ func main() {
 	flag.Parse()
 	http.Handle(runtime.Prefix, runtime.Handler())
 	http.Handle(atelier.AssetsPrefix, atelier.Assets())
+	// Documents are kept in memory; the editor saves after each change.
+	store := atelier.NewMemoryStore()
+	_ = store.Save(context.Background(), "sample", sample)
+	http.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, types, atelier.Limits{})))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		doc, err := store.Load(r.Context(), "sample")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		page := h.Html(h.Lang("en"),
 			h.Head(
 				h.Meta(h.Charset("utf-8")),
@@ -28,7 +42,7 @@ func main() {
 				atelier.Stylesheet(),
 				runtime.Scripts(r),
 			),
-			h.Body(editor()),
+			h.Body(editor(doc)),
 		)
 		_ = h.WriteHTTP(w, http.StatusOK, page)
 	})
@@ -54,8 +68,26 @@ var sample = atelier.Document{Width: 1080, Height: 1350, Layers: []atelier.Layer
 	}},
 }}
 
-func editor() h.Node {
-	return atelier.Designer(atelier.Config{Document: sample, Class: "h-svh"},
+// badge is a custom layer type, rendered by Go on the server and in the
+// editor (Config.RenderURL).
+var badge = atelier.LayerType{
+	Type: "badge", Name: "Badge", Icon: lucide.Sparkles, Key: "b",
+	Defaults: atelier.Layer{Value: "New", Vars: map[string]string{
+		atelier.VarWidth: "240px", atelier.VarHeight: "88px", atelier.VarFill: "#18181b",
+		atelier.VarRadius: "44px", atelier.VarColor: "#ffffff", atelier.VarAlignItems: "center",
+		atelier.VarJustify: "center",
+	}},
+	Render: func(l atelier.Layer) h.Node {
+		return h.Span(h.Style("font: 600 40px/1 system-ui, sans-serif; letter-spacing: -0.5px"),
+			"✦ ", l.Value)
+	},
+}
+
+var types = atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType, badge}
+
+func editor(doc atelier.Document) h.Node {
+	return atelier.Designer(atelier.Config{Document: doc, Types: types, Class: "h-svh",
+		SaveURL: "/designs/sample", RenderURL: "/designs/render"},
 		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
 		atelier.Content(
 			atelier.Panel(atelier.SideLeft, atelier.PaneLayers()),
@@ -70,6 +102,7 @@ func editor() h.Node {
 						atelier.ToolbarButton("Frame", lucide.Frame(), h.Data("atelier-command", "add"), h.Data("atelier-type", "frame")),
 						atelier.ToolbarButton("Text", lucide.Type(), h.Data("atelier-command", "add"), h.Data("atelier-type", "text")),
 						atelier.ToolbarButton("Image", lucide.Image(), h.Data("atelier-command", "add"), h.Data("atelier-type", "image")),
+						atelier.ToolbarButton("Badge", lucide.Sparkles(), h.Data("atelier-command", "add"), h.Data("atelier-type", "badge")),
 					),
 					atelier.ToolbarSeparator(),
 					atelier.ToolbarGroup(atelier.ToolbarZoom()),
@@ -79,7 +112,7 @@ func editor() h.Node {
 				atelier.Pane("Layer", nil, atelier.ActionPosition(), atelier.ActionSize()),
 				atelier.Pane("Styles", nil, atelier.ActionRadius(), atelier.ActionBorder(), atelier.ActionShadow(), atelier.ActionFill(), atelier.ActionOpacity()),
 				atelier.Pane("Transforms", nil, atelier.ActionRotate(), atelier.ActionFlip()),
-				atelier.Pane("", []string{"text"}, atelier.ActionTextValue()),
+				atelier.Pane("", []string{"text", "badge"}, atelier.ActionTextValue()),
 				atelier.Pane("Text", []string{"text"},
 					atelier.ActionFont(), atelier.ActionFontWeight(), atelier.ActionColor(), atelier.ActionFontSize(),
 					atelier.ActionLineHeight(), atelier.ActionLetterSpacing(), atelier.ActionTextAlign(), atelier.ActionVerticalAlign(),

@@ -1281,6 +1281,7 @@
   overflow: hidden;
   z-index: var(--at-z, 0);
   opacity: var(--at-opacity, 1);
+  color: var(--at-color, inherit);
   background: var(--at-fill, transparent);
   border: var(--at-border-width, 0px) solid var(--at-border-color, transparent);
   border-radius: var(--at-radius, 0px);

@@ -54,6 +54,10 @@ function rotate([x, y], deg) {
   return [x * c - y * s, x * s + y * c]
 }
 
+// Types the runtime draws itself; others are rendered by the server
+// (config.renderURL).
+const BUILTIN = new Set(["frame", "text", "image"])
+
 class Editor {
   constructor(root) {
     this.root = root
@@ -334,7 +338,9 @@ class Editor {
     el.hidden = !!l.hidden
     if (l.locked) el.dataset.locked = "true"
     else delete el.dataset.locked
-    if (l.type === "text") {
+    if (!BUILTIN.has(l.type)) {
+      this.renderCustom(el, l)
+    } else if (l.type === "text") {
       let t = el.querySelector(':scope > [data-slot="atelier-text"]')
       if (!t) {
         t = document.createElement("div")
@@ -366,6 +372,38 @@ class Editor {
         }
       }
     }
+  }
+
+  // A custom layer's content comes from its type's Go Render, fetched again
+  // when the layer's data changes (debounced).
+  renderCustom(el, l) {
+    if (!this.config.renderURL) return
+    const { id, name, ...data } = l
+    const key = JSON.stringify(data)
+    if (el.dataset.rendered === key) return
+    el.dataset.rendered = key
+    clearTimeout(el.renderTimer)
+    el.renderTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(this.config.renderURL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ layer: l }),
+          credentials: "same-origin",
+        })
+        if (!res.ok || el.dataset.rendered !== key) return
+        const html = res.status === 204 ? "" : await res.text()
+        // The layer's own content: everything but its child layers.
+        for (const c of [...el.childNodes]) {
+          if (!(c.nodeType === 1 && c.matches('[data-slot="atelier-layer"]'))) c.remove()
+        }
+        const t = document.createElement("template")
+        t.innerHTML = html
+        el.prepend(t.content)
+      } catch (err) {
+        console.error("[atelier] render:", err)
+      }
+    }, 120)
   }
 
   // --- geometry -----------------------------------------------------------
@@ -1114,7 +1152,12 @@ class Editor {
       if (el.dataset.atelierVar && !el.dataset.atelierSet) {
         if (el.tagName === "SELECT") return
         write(el, true)
-      } else if (el.dataset.atelierValue !== undefined) this.setValue(el.value, { live: true })
+      } else if (el.dataset.atelierValue !== undefined) {
+        this.setValue(el.value, { live: true })
+        // Typing becomes one history entry (and a save) once it pauses.
+        clearTimeout(this.typingTimer)
+        this.typingTimer = setTimeout(() => this.end(), 600)
+      }
     }
     const onChange = (e) => {
       const el = e.target
