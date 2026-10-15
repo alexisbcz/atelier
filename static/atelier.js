@@ -902,6 +902,43 @@ class Editor {
     }
   }
 
+  // Inserts a template's layers, centered in the frame, with new ids.
+  insertTemplate(layers) {
+    if (!Array.isArray(layers) || !layers.length) return
+    const ids = new Map(layers.map((l) => [l.id, uid()]))
+    const roots = layers.filter((l) => !l.parent)
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const l of roots) {
+      const x = num(l.vars?.["--at-x"])
+      const y = num(l.vars?.["--at-y"])
+      x0 = Math.min(x0, x)
+      y0 = Math.min(y0, y)
+      x1 = Math.max(x1, x + num(l.vars?.["--at-width"]))
+      y1 = Math.max(y1, y + num(l.vars?.["--at-height"]))
+    }
+    const dx = (this.doc.width - (x1 - x0)) / 2 - x0
+    const dy = (this.doc.height - (y1 - y0)) / 2 - y0
+    const out = layers
+      .filter((l) => this.types.has(l.type))
+      .map((l) => {
+        const c = clone(l)
+        c.id = ids.get(l.id)
+        c.vars ??= {}
+        if (c.parent) c.parent = ids.get(c.parent)
+        else {
+          c.vars["--at-x"] = px(num(c.vars["--at-x"]) + dx)
+          c.vars["--at-y"] = px(num(c.vars["--at-y"]) + dy)
+          if (this.page) c.page = this.page
+        }
+        return c
+      })
+    this.commit((d) => d.layers.push(...out))
+    this.select(out.filter((l) => !l.parent).map((l) => l.id))
+  }
+
   // Dragging rows reorders layers: above or below a row, or into a frame
   // (the middle of its row). Positions are converted so nothing moves.
   treeDrag(e, list) {
@@ -1620,6 +1657,8 @@ class Editor {
         return this.addPage()
       case "delete-page":
         return this.deletePage()
+      case "insert":
+        return this.insertTemplate(JSON.parse(el.dataset.atelierTemplate || "[]"))
       case "align":
         return this.align(el.dataset.atelierEdge)
       case "cut":

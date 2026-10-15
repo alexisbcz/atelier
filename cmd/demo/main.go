@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexisbcz/atelier"
 	"github.com/alexisbcz/components/ui/runtime"
+	"github.com/alexisbcz/components/ui/tabs"
 	"github.com/alexisbcz/icons/lucide"
 	h "github.com/alexisbcz/libhtml"
 )
@@ -83,6 +84,32 @@ var badge = atelier.LayerType{
 	},
 }
 
+// library holds the templates of the Library tab.
+var library = []atelier.Template{
+	{Name: "Heading", Layers: []atelier.Layer{{ID: "h", Name: "Heading", Type: "text", Value: "Big idea", Vars: map[string]string{
+		atelier.VarWidth: "800px", atelier.VarHeight: "160px", atelier.VarFontSize: "128px", atelier.VarFontWeight: "800",
+		atelier.VarLetterSpace: "-3px", atelier.VarTextAlign: "center", atelier.VarColor: "#18181b",
+	}}}},
+	{Name: "Card", Layers: []atelier.Layer{
+		{ID: "c", Name: "Card", Type: "frame", Vars: map[string]string{
+			atelier.VarWidth: "640px", atelier.VarHeight: "360px", atelier.VarFill: "#ffffff", atelier.VarRadius: "32px",
+			atelier.VarShadow: "0 24px 48px #0000002e",
+		}},
+		{ID: "ct", Name: "Card title", Type: "text", Parent: "c", Value: "Card title", Vars: map[string]string{
+			atelier.VarWidth: "560px", atelier.VarHeight: "80px", atelier.VarX: "40px", atelier.VarY: "48px",
+			atelier.VarFontSize: "56px", atelier.VarFontWeight: "700", atelier.VarColor: "#18181b",
+		}},
+		{ID: "cb", Name: "Card body", Type: "text", Parent: "c", Value: "Write something short and clear here.", Vars: map[string]string{
+			atelier.VarWidth: "560px", atelier.VarHeight: "120px", atelier.VarX: "40px", atelier.VarY: "150px",
+			atelier.VarFontSize: "36px", atelier.VarColor: "#52525b", atelier.VarAlignItems: "flex-start",
+		}},
+	}},
+	{Name: "Badge", Layers: []atelier.Layer{{ID: "b", Name: "Badge", Type: "badge", Value: "New", Vars: badge.Defaults.Vars}}},
+	{Name: "Photo", Layers: []atelier.Layer{{ID: "p", Name: "Photo", Type: "image", Vars: map[string]string{
+		atelier.VarWidth: "600px", atelier.VarHeight: "400px", atelier.VarRadius: "24px",
+	}}}},
+}
+
 var types = atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType, badge}
 
 func editor(doc atelier.Document, readOnly bool) h.Node {
@@ -90,7 +117,16 @@ func editor(doc atelier.Document, readOnly bool) h.Node {
 		SaveURL: "/designs/sample", RenderURL: "/designs/render"},
 		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
 		atelier.Content(
-			atelier.Panel(atelier.SideLeft, atelier.PageSelector(), atelier.PaneLayers()),
+			atelier.Panel(atelier.SideLeft,
+				tabs.Tabs(tabs.Value("layers"), h.Class("gap-0"),
+					h.Div(h.Class("p-2 pb-0"), tabs.List(h.Class("w-full"),
+						tabs.Trigger(tabs.Value("layers"), "Layers"),
+						tabs.Trigger(tabs.Value("library"), "Library"),
+					)),
+					tabs.Content(tabs.Value("layers"), atelier.PageSelector(), atelier.PaneLayers()),
+					tabs.Content(tabs.Value("library"), atelier.PaneLibrary(library...)),
+				),
+			),
 			atelier.Canvas(atelier.Frame(), atelier.CanvasMenu(),
 				atelier.Toolbar(
 					atelier.ToolbarGroup(
