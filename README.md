@@ -195,6 +195,14 @@ rebinds or disables any shortcut, by command name:
 atelier.Config{Keys: map[string]string{"duplicate": "mod+shift+d", "add:text": ""}}
 ```
 
+## Development
+
+```sh
+go test ./...                 # the package
+cd e2e && go test ./...       # the editor in Chrome (chromedp); set CHROME if needed
+go generate                   # rebuild static/atelier.css after changing classes
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
