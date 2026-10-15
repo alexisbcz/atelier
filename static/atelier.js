@@ -1,0 +1,813 @@
+// atelier.js: the editor runtime. The server renders the shell and the
+// layers (atelier.Designer); this module makes them editable.
+//
+// - The document (layers + frame size) is a plain object; every edit goes
+//   through commit(), which records history, re-syncs the DOM and the
+//   overlay, and emits "atelier:change" on the root (debounced POST to
+//   saveURL when configured).
+// - Layers are DOM boxes whose look comes only from CSS custom properties
+//   (static/layers.css), exactly like the server rendering.
+// - The canvas has a viewport transformed by pan + zoom; the overlay draws
+//   the selection in canvas coordinates (rotation-aware), with resize and
+//   rotate handles.
+import { define } from "./core.js"
+
+const MIN_ZOOM = 0.05
+const MAX_ZOOM = 8
+const HISTORY = 100
+
+const num = (v, d = 0) => {
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : d
+}
+const round = (n) => Math.round(n * 100) / 100
+const px = (n) => round(n) + "px"
+const clone = (v) => JSON.parse(JSON.stringify(v))
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-3)
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
+
+function rotate([x, y], deg) {
+  const r = (deg * Math.PI) / 180
+  const c = Math.cos(r)
+  const s = Math.sin(r)
+  return [x * c - y * s, x * s + y * c]
+}
+
+class Editor {
+  constructor(root) {
+    this.root = root
+    this.doc = JSON.parse(root.querySelector("script[data-atelier-document]")?.textContent || "{}")
+    this.doc.layers ??= []
+    this.doc.width ||= 1024
+    this.doc.height ||= 1024
+    this.config = JSON.parse(root.querySelector("script[data-atelier-config]")?.textContent || "{}")
+    this.types = new Map((this.config.types ?? []).map((t) => [t.type, t]))
+    this.readOnly = !!this.config.readOnly
+    this.canvas = root.querySelector('[data-slot="atelier-canvas"]')
+    this.viewport = root.querySelector('[data-slot="atelier-viewport"]')
+    this.overlay = root.querySelector('[data-slot="atelier-overlay"]')
+    this.frame = root.querySelector('[data-slot="atelier-frame"]')
+    this.selection = []
+    this.past = []
+    this.future = []
+    this.zoom = 1
+    this.pan = [0, 0]
+    this.cleanups = []
+    this.listeners = new Set()
+  }
+
+  // --- document ---------------------------------------------------------
+
+  layer(id) {
+    return this.doc.layers.find((l) => l.id === id)
+  }
+
+  selected() {
+    return this.selection.map((id) => this.layer(id)).filter(Boolean)
+  }
+
+  // Applies fn to a copy of the document and records the previous state.
+  commit(fn, { record = true } = {}) {
+    const before = clone(this.doc)
+    fn(this.doc)
+    if (record) {
+      this.past.push(before)
+      if (this.past.length > HISTORY) this.past.shift()
+      this.future = []
+    }
+    this.selection = this.selection.filter((id) => this.layer(id))
+    this.sync()
+    this.changed()
+  }
+
+  // Begins an interactive change (drag, resize, typing): the document
+  // changes live without history; end() records one history entry.
+  begin() {
+    this.pending ??= clone(this.doc)
+  }
+
+  end() {
+    if (!this.pending) return
+    if (JSON.stringify(this.pending) !== JSON.stringify(this.doc)) {
+      this.past.push(this.pending)
+      if (this.past.length > HISTORY) this.past.shift()
+      this.future = []
+      this.changed()
+    }
+    this.pending = null
+  }
+
+  undo() {
+    const prev = this.past.pop()
+    if (!prev) return
+    this.future.push(clone(this.doc))
+    this.doc = prev
+    this.selection = this.selection.filter((id) => this.layer(id))
+    this.sync()
+    this.changed()
+  }
+
+  redo() {
+    const next = this.future.pop()
+    if (!next) return
+    this.past.push(clone(this.doc))
+    this.doc = next
+    this.selection = this.selection.filter((id) => this.layer(id))
+    this.sync()
+    this.changed()
+  }
+
+  changed() {
+    this.root.dispatchEvent(new CustomEvent("atelier:change", { bubbles: true, detail: { document: this.doc } }))
+    if (this.config.saveURL) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = setTimeout(() => this.save(), 500)
+    }
+    this.notify()
+  }
+
+  async save() {
+    try {
+      await fetch(this.config.saveURL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(this.doc),
+        credentials: "same-origin",
+      })
+    } catch (err) {
+      console.error("[atelier] save:", err)
+    }
+  }
+
+  // Panels and actions subscribe to changes of the document, the
+  // selection or the zoom.
+  subscribe(fn) {
+    this.listeners.add(fn)
+    fn(this)
+    return () => this.listeners.delete(fn)
+  }
+
+  notify() {
+    for (const fn of this.listeners) fn(this)
+    this.root.dispatchEvent(new CustomEvent("atelier:update", { detail: { editor: this } }))
+  }
+
+  select(ids) {
+    this.selection = ids.filter((id) => {
+      const l = this.layer(id)
+      return l && !l.locked && !l.hidden
+    })
+    this.drawOverlay()
+    this.notify()
+  }
+
+  addLayer(type, init = {}) {
+    const t = this.types.get(type)
+    if (!t) return null
+    const l = clone(t.defaults ?? {})
+    l.id = uid()
+    l.type = type
+    l.name ||= t.name
+    l.vars ??= {}
+    Object.assign(l, init)
+    // Centered in the frame.
+    const w = num(l.vars["--width"], 200)
+    const h = num(l.vars["--height"], 100)
+    l.vars["--translate-x"] ??= px((this.doc.width - w) / 2)
+    l.vars["--translate-y"] ??= px((this.doc.height - h) / 2)
+    this.commit((d) => d.layers.push(l))
+    this.select([l.id])
+    return l
+  }
+
+  removeSelected() {
+    const ids = new Set(this.selection)
+    if (!ids.size) return
+    // Removing a frame removes what it holds.
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const l of this.doc.layers) {
+        if (l.parent && ids.has(l.parent) && !ids.has(l.id)) {
+          ids.add(l.id)
+          grew = true
+        }
+      }
+    }
+    this.commit((d) => (d.layers = d.layers.filter((l) => !ids.has(l.id))))
+    this.select([])
+  }
+
+  duplicateSelected() {
+    const copies = []
+    this.commit((d) => {
+      for (const l of this.selected()) {
+        const c = clone(l)
+        c.id = uid()
+        c.name = l.name + " copy"
+        c.vars["--translate-x"] = px(num(l.vars["--translate-x"]) + 20)
+        c.vars["--translate-y"] = px(num(l.vars["--translate-y"]) + 20)
+        d.layers.push(c)
+        copies.push(c.id)
+      }
+    })
+    this.select(copies)
+  }
+
+  // Sets custom properties on the selected layers (an empty value removes
+  // one). live: during an interaction (no history entry per step).
+  setVars(vars, { live = false } = {}) {
+    const apply = (d) => {
+      for (const id of this.selection) {
+        const l = d.layers.find((x) => x.id === id)
+        if (!l) continue
+        l.vars ??= {}
+        for (const [k, v] of Object.entries(vars)) {
+          if (v === "" || v == null) delete l.vars[k]
+          else l.vars[k] = String(v)
+        }
+      }
+    }
+    if (live) {
+      this.begin()
+      apply(this.doc)
+      this.sync()
+      this.notify()
+    } else this.commit(apply)
+  }
+
+  setValue(value, { live = false } = {}) {
+    const apply = (d) => {
+      for (const id of this.selection) {
+        const l = d.layers.find((x) => x.id === id)
+        if (l) l.value = value
+      }
+    }
+    if (live) {
+      this.begin()
+      apply(this.doc)
+      this.sync()
+      this.notify()
+    } else this.commit(apply)
+  }
+
+  // --- DOM sync -----------------------------------------------------------
+
+  element(id) {
+    return this.frame.querySelector(`[data-layer-id="${CSS.escape(id)}"]`)
+  }
+
+  sync() {
+    const seen = new Set()
+    const place = (parentId, container) => {
+      let prev = null
+      for (const l of this.doc.layers) {
+        if ((l.parent ?? "") !== parentId) continue
+        seen.add(l.id)
+        let el = this.element(l.id)
+        if (!el) el = this.create(l)
+        else this.update(el, l)
+        // Keep document order (paint order).
+        const want = prev ? prev.nextElementSibling : this.firstLayerChild(container)
+        if (el.parentElement !== container || want !== el) {
+          if (prev) prev.after(el)
+          else container.prepend(el)
+        }
+        prev = el
+        place(l.id, el)
+      }
+    }
+    place("", this.frame)
+    for (const el of [...this.frame.querySelectorAll('[data-slot="atelier-layer"]')]) {
+      if (!seen.has(el.dataset.layerId)) el.remove()
+    }
+    this.frame.style.width = this.doc.width + "px"
+    this.frame.style.height = this.doc.height + "px"
+    this.drawOverlay()
+  }
+
+  firstLayerChild(container) {
+    return [...container.children].find((c) => c.matches('[data-slot="atelier-layer"]')) ?? null
+  }
+
+  create(l) {
+    const el = document.createElement("div")
+    el.dataset.slot = "atelier-layer"
+    el.dataset.layerId = l.id
+    el.dataset.layerType = l.type
+    el.className = "atelier-layer atelier-layer-" + l.type.replace(/[^\w-]/g, "")
+    this.update(el, l)
+    return el
+  }
+
+  update(el, l) {
+    const style = Object.entries(l.vars ?? {})
+      .filter(([k]) => /^--[\w-]+$/.test(k))
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([k, v]) => `${k}: ${String(v).replace(/[;{}<\\\n\r]/g, "")}`)
+      .join("; ")
+    if (el.getAttribute("style") !== style) {
+      if (style) el.setAttribute("style", style)
+      else el.removeAttribute("style")
+    }
+    el.hidden = !!l.hidden
+    if (l.locked) el.dataset.locked = "true"
+    else delete el.dataset.locked
+    if (l.type === "text") {
+      let t = el.querySelector(':scope > [data-slot="atelier-text"]')
+      if (!t) {
+        t = document.createElement("div")
+        t.dataset.slot = "atelier-text"
+        el.prepend(t)
+      }
+      if (t !== this.editing && t.textContent !== (l.value ?? "")) t.textContent = l.value ?? ""
+    } else if (l.type === "image") {
+      let img = el.querySelector(':scope > img[data-slot="atelier-image"]')
+      const empty = el.querySelector(':scope > [data-slot="atelier-image-empty"]')
+      if (l.value) {
+        empty?.remove()
+        if (!img) {
+          img = document.createElement("img")
+          img.dataset.slot = "atelier-image"
+          img.draggable = false
+          el.prepend(img)
+        }
+        if (img.getAttribute("src") !== l.value) img.setAttribute("src", l.value)
+        img.alt = l.name ?? ""
+      } else {
+        img?.remove()
+        if (!empty) {
+          const e = document.createElement("div")
+          e.dataset.slot = "atelier-image-empty"
+          e.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>'
+          el.prepend(e)
+        }
+      }
+    }
+  }
+
+  // --- geometry -----------------------------------------------------------
+
+  // The layer's box in frame coordinates: its parents' offsets plus its
+  // own translate (rotation of parents is not composed).
+  box(l) {
+    let x = num(l.vars?.["--translate-x"])
+    let y = num(l.vars?.["--translate-y"])
+    let p = l.parent ? this.layer(l.parent) : null
+    while (p) {
+      x += num(p.vars?.["--translate-x"])
+      y += num(p.vars?.["--translate-y"])
+      p = p.parent ? this.layer(p.parent) : null
+    }
+    const el = this.element(l.id)
+    const w = num(l.vars?.["--width"], el ? el.offsetWidth : 0)
+    const h = num(l.vars?.["--height"], el ? el.offsetHeight : 0)
+    return { x, y, w, h, r: num(l.vars?.["--rotate"]) }
+  }
+
+  // Canvas (client) point -> frame coordinates.
+  toFrame(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect()
+    return [(clientX - r.left - this.pan[0]) / this.zoom, (clientY - r.top - this.pan[1]) / this.zoom]
+  }
+
+  applyView() {
+    this.viewport.style.transform = `translate(${this.pan[0]}px, ${this.pan[1]}px) scale(${this.zoom})`
+    this.drawOverlay()
+    this.notify()
+  }
+
+  fit() {
+    const r = this.canvas.getBoundingClientRect()
+    if (!r.width || !r.height) return
+    const pad = 64
+    const bottom = this.root.querySelector('[data-slot="atelier-toolbar"]') ? 56 : 0
+    const z = Math.min((r.width - pad * 2) / this.doc.width, (r.height - pad * 2 - bottom) / this.doc.height)
+    this.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z))
+    this.pan = [(r.width - this.doc.width * this.zoom) / 2, (r.height - bottom - this.doc.height * this.zoom) / 2]
+    this.applyView()
+  }
+
+  // Zooms around a canvas point (client coordinates; the center by default).
+  zoomTo(z, clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect()
+    clientX ??= r.left + r.width / 2
+    clientY ??= r.top + r.height / 2
+    const [fx, fy] = this.toFrame(clientX, clientY)
+    this.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z))
+    this.pan = [clientX - r.left - fx * this.zoom, clientY - r.top - fy * this.zoom]
+    this.applyView()
+  }
+
+  // --- overlay ------------------------------------------------------------
+
+  drawOverlay() {
+    if (!this.overlay) return
+    this.overlay.replaceChildren()
+    if (this.readOnly) return
+    const layers = this.selected()
+    for (const l of layers) {
+      const b = this.box(l)
+      const box = document.createElement("div")
+      box.dataset.slot = "atelier-selection"
+      box.dataset.layerId = l.id
+      Object.assign(box.style, {
+        position: "absolute",
+        left: this.pan[0] + b.x * this.zoom + "px",
+        top: this.pan[1] + b.y * this.zoom + "px",
+        width: b.w * this.zoom + "px",
+        height: b.h * this.zoom + "px",
+        transform: `rotate(${b.r}deg)`,
+        transformOrigin: "center",
+        outline: "1.5px solid #3b82f6",
+        pointerEvents: "none",
+      })
+      if (layers.length === 1 && !this.editing) {
+        for (const [hx, hy] of [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]) {
+          const hd = document.createElement("div")
+          hd.dataset.handle = `${hx},${hy}`
+          Object.assign(hd.style, {
+            position: "absolute",
+            left: `calc(${(hx + 1) * 50}% - 5px)`,
+            top: `calc(${(hy + 1) * 50}% - 5px)`,
+            width: "10px",
+            height: "10px",
+            borderRadius: "9999px",
+            background: "#ffffff",
+            border: "1.5px solid #3b82f6",
+            pointerEvents: "auto",
+            cursor: this.cursor(hx, hy, b.r),
+          })
+          box.append(hd)
+        }
+        const stem = document.createElement("div")
+        Object.assign(stem.style, { position: "absolute", left: "calc(50% - 0.75px)", top: "-28px", width: "1.5px", height: "28px", background: "#3b82f6" })
+        const rot = document.createElement("div")
+        rot.dataset.handle = "rotate"
+        Object.assign(rot.style, {
+          position: "absolute",
+          left: "calc(50% - 6px)",
+          top: "-36px",
+          width: "12px",
+          height: "12px",
+          borderRadius: "9999px",
+          background: "#ffffff",
+          border: "1.5px solid #3b82f6",
+          pointerEvents: "auto",
+          cursor: "grab",
+        })
+        box.append(stem, rot)
+        const label = document.createElement("div")
+        label.textContent = `${Math.round(b.w)} × ${Math.round(b.h)} px`
+        Object.assign(label.style, {
+          position: "absolute",
+          left: "50%",
+          top: "calc(100% + 10px)",
+          transform: `translateX(-50%) rotate(${-b.r}deg)`,
+          background: "#3b82f6",
+          color: "#ffffff",
+          font: "500 11px/1 system-ui, sans-serif",
+          padding: "4px 6px",
+          borderRadius: "4px",
+          whiteSpace: "nowrap",
+        })
+        box.append(label)
+      }
+      this.overlay.append(box)
+    }
+  }
+
+  cursor(hx, hy, r) {
+    const cursors = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"]
+    const angle = (Math.atan2(hy, hx) * 180) / Math.PI + r
+    const i = Math.round((((angle % 180) + 180) % 180) / 45) % 4
+    return cursors[i]
+  }
+
+  // --- interaction --------------------------------------------------------
+
+  // The topmost selectable layer under a client point.
+  hit(target) {
+    let el = target.closest?.('[data-slot="atelier-layer"]')
+    while (el && this.frame.contains(el)) {
+      const l = this.layer(el.dataset.layerId)
+      if (l && !l.locked && !l.hidden) return l
+      el = el.parentElement?.closest('[data-slot="atelier-layer"]')
+    }
+    return null
+  }
+
+  mount() {
+    this.sync()
+    const on = (target, type, fn, opts) => {
+      target.addEventListener(type, fn, opts)
+      this.cleanups.push(() => target.removeEventListener(type, fn, opts))
+    }
+    const ro = new ResizeObserver(() => (this.fitted ? this.drawOverlay() : this.fitOnce()))
+    ro.observe(this.canvas)
+    this.cleanups.push(() => ro.disconnect())
+    this.fitOnce()
+
+    on(this.canvas, "wheel", (e) => this.onWheel(e), { passive: false })
+    on(this.canvas, "pointerdown", (e) => this.onPointerDown(e))
+    on(this.canvas, "dblclick", (e) => this.onDoubleClick(e))
+    on(window, "keydown", (e) => this.onKey(e))
+    on(this.root, "click", (e) => {
+      const cmd = e.target.closest?.("[data-atelier-command]")
+      if (cmd && this.root.contains(cmd)) this.command(cmd.dataset.atelierCommand, cmd)
+    })
+    this.root.atelier = this
+    this.notify()
+    return () => this.cleanups.forEach((fn) => fn())
+  }
+
+  fitOnce() {
+    const r = this.canvas.getBoundingClientRect()
+    if (!r.width || !r.height) return
+    this.fitted = true
+    this.fit()
+  }
+
+  onWheel(e) {
+    e.preventDefault()
+    if (e.ctrlKey || e.metaKey) {
+      // Pinch or ctrl/cmd + wheel: zoom around the pointer.
+      this.zoomTo(this.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY)
+    } else {
+      this.pan = [this.pan[0] - e.deltaX, this.pan[1] - e.deltaY]
+      this.applyView()
+    }
+  }
+
+  onPointerDown(e) {
+    if (e.button === 1 || (e.button === 0 && this.spaceDown)) return this.dragPan(e)
+    if (e.button !== 0 || this.readOnly) return
+    const handle = e.target.closest?.("[data-handle]")
+    if (handle) {
+      e.preventDefault()
+      if (handle.dataset.handle === "rotate") return this.dragRotate(e)
+      return this.dragResize(e, handle.dataset.handle.split(",").map(Number))
+    }
+    if (this.editing && this.editing.contains(e.target)) return
+    this.stopEditing()
+    const l = this.hit(e.target)
+    if (!l) {
+      this.select([])
+      return
+    }
+    if (e.shiftKey) {
+      const ids = this.selection.includes(l.id) ? this.selection.filter((i) => i !== l.id) : [...this.selection, l.id]
+      this.select(ids)
+      return
+    }
+    if (!this.selection.includes(l.id)) this.select([l.id])
+    this.canvas.focus({ preventScroll: true })
+    this.dragMove(e)
+  }
+
+  track(e, move, up) {
+    const id = e.pointerId
+    this.canvas.setPointerCapture?.(id)
+    const onMove = (ev) => ev.pointerId === id && move(ev)
+    const onUp = (ev) => {
+      if (ev.pointerId !== id) return
+      this.canvas.removeEventListener("pointermove", onMove)
+      this.canvas.removeEventListener("pointerup", onUp)
+      this.canvas.removeEventListener("pointercancel", onUp)
+      up?.(ev)
+    }
+    this.canvas.addEventListener("pointermove", onMove)
+    this.canvas.addEventListener("pointerup", onUp)
+    this.canvas.addEventListener("pointercancel", onUp)
+  }
+
+  dragPan(e) {
+    e.preventDefault()
+    const start = [e.clientX, e.clientY]
+    const pan = [...this.pan]
+    this.canvas.style.cursor = "grabbing"
+    this.track(
+      e,
+      (ev) => {
+        this.pan = [pan[0] + ev.clientX - start[0], pan[1] + ev.clientY - start[1]]
+        this.applyView()
+      },
+      () => (this.canvas.style.cursor = ""),
+    )
+  }
+
+  dragMove(e) {
+    const start = [e.clientX, e.clientY]
+    const origin = this.selected().map((l) => [l.id, num(l.vars?.["--translate-x"]), num(l.vars?.["--translate-y"])])
+    let moved = false
+    this.track(
+      e,
+      (ev) => {
+        const dx = (ev.clientX - start[0]) / this.zoom
+        const dy = (ev.clientY - start[1]) / this.zoom
+        if (!moved && Math.hypot(dx * this.zoom, dy * this.zoom) < 3) return
+        moved = true
+        this.begin()
+        for (const [id, x, y] of origin) {
+          const l = this.layer(id)
+          if (!l) continue
+          l.vars ??= {}
+          l.vars["--translate-x"] = px(x + dx)
+          l.vars["--translate-y"] = px(y + dy)
+        }
+        this.sync()
+        this.notify()
+      },
+      () => this.end(),
+    )
+  }
+
+  dragResize(e, [hx, hy]) {
+    const l = this.selected()[0]
+    if (!l) return
+    const b = this.box(l)
+    const x0 = num(l.vars?.["--translate-x"])
+    const y0 = num(l.vars?.["--translate-y"])
+    const start = [e.clientX, e.clientY]
+    const ratio = b.w / (b.h || 1)
+    this.track(
+      e,
+      (ev) => {
+        this.begin()
+        // The pointer delta in the layer's own (rotated) axes.
+        const [dx, dy] = rotate([(ev.clientX - start[0]) / this.zoom, (ev.clientY - start[1]) / this.zoom], -b.r)
+        let w = hx ? Math.max(1, b.w + hx * dx) : b.w
+        let h = hy ? Math.max(1, b.h + hy * dy) : b.h
+        if (ev.shiftKey && hx && hy) {
+          // Keep the aspect ratio.
+          if (w / h > ratio) h = w / ratio
+          else w = h * ratio
+        }
+        // The opposite anchor stays in place.
+        const a = [(-hx * b.w) / 2, (-hy * b.h) / 2]
+        const a2 = [(-hx * w) / 2, (-hy * h) / 2]
+        const [sx, sy] = rotate([a[0] - a2[0], a[1] - a2[1]], b.r)
+        const cx = x0 + b.w / 2 + sx
+        const cy = y0 + b.h / 2 + sy
+        l.vars ??= {}
+        l.vars["--width"] = px(w)
+        l.vars["--height"] = px(h)
+        l.vars["--translate-x"] = px(cx - w / 2)
+        l.vars["--translate-y"] = px(cy - h / 2)
+        this.sync()
+        this.notify()
+      },
+      () => this.end(),
+    )
+  }
+
+  dragRotate(e) {
+    const l = this.selected()[0]
+    if (!l) return
+    const b = this.box(l)
+    const r = this.canvas.getBoundingClientRect()
+    const cx = r.left + this.pan[0] + (b.x + b.w / 2) * this.zoom
+    const cy = r.top + this.pan[1] + (b.y + b.h / 2) * this.zoom
+    this.track(
+      e,
+      (ev) => {
+        this.begin()
+        let deg = (Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180) / Math.PI + 90
+        if (ev.shiftKey) deg = Math.round(deg / 15) * 15
+        deg = ((deg % 360) + 360) % 360
+        if (deg > 180) deg -= 360
+        l.vars ??= {}
+        if (Math.abs(deg) < 0.01) delete l.vars["--rotate"]
+        else l.vars["--rotate"] = round(deg) + "deg"
+        this.sync()
+        this.notify()
+      },
+      () => this.end(),
+    )
+  }
+
+  onDoubleClick(e) {
+    if (this.readOnly) return
+    // Pointer capture (dragMove) retargets the click to the canvas: hit-test
+    // at the pointer instead.
+    const l = this.hit(document.elementFromPoint(e.clientX, e.clientY) ?? e.target)
+    if (!l || l.type !== "text") return
+    const el = this.element(l.id)?.querySelector('[data-slot="atelier-text"]')
+    if (!el) return
+    this.select([l.id])
+    this.editing = el
+    el.contentEditable = "plaintext-only"
+    el.focus()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+    this.drawOverlay()
+    const onInput = () => {
+      this.begin()
+      l.value = el.textContent
+      this.notify()
+    }
+    el.addEventListener("input", onInput)
+    el.addEventListener("blur", () => this.stopEditing(), { once: true })
+    this.stopEditingCleanup = () => el.removeEventListener("input", onInput)
+  }
+
+  stopEditing() {
+    const el = this.editing
+    if (!el) return
+    // Cleared first: leaving edit mode blurs the element, whose blur
+    // listener calls stopEditing again.
+    this.editing = null
+    el.removeAttribute("contenteditable")
+    this.stopEditingCleanup?.()
+    this.end()
+    this.drawOverlay()
+  }
+
+  // Shortcuts apply while focus is in the editor and not in a field.
+  onKey(e) {
+    if (!this.root.isConnected) return
+    const t = e.target
+    const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t?.isContentEditable
+    if (e.key === " " && !inField) this.spaceDown = e.type === "keydown"
+    if (inField) {
+      if (e.key === "Escape" && this.editing) {
+        e.preventDefault()
+        this.stopEditing()
+      }
+      return
+    }
+    if (!this.root.contains(document.activeElement) && document.activeElement !== document.body) return
+    const mod = isMac ? e.metaKey : e.ctrlKey
+    const k = e.key.toLowerCase()
+    const run = (fn) => {
+      e.preventDefault()
+      fn()
+    }
+    if (mod && k === "z") return run(() => (e.shiftKey ? this.redo() : this.undo()))
+    if (mod && k === "y") return run(() => this.redo())
+    if (mod && (k === "=" || k === "+")) return run(() => this.zoomTo(this.zoom * 1.25))
+    if (mod && k === "-") return run(() => this.zoomTo(this.zoom / 1.25))
+    if (mod && k === "0") return run(() => this.fit())
+    if (this.readOnly) return
+    if (mod && k === "d") return run(() => this.duplicateSelected())
+    if (mod && k === "a") return run(() => this.select(this.doc.layers.filter((l) => !l.parent).map((l) => l.id)))
+    if (mod || e.altKey) return
+    if (k === "escape") return run(() => this.select([]))
+    if (k === "delete" || k === "backspace") return run(() => this.removeSelected())
+    const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }
+    if (arrows[k] && this.selection.length) {
+      const [dx, dy] = arrows[k].map((v) => v * (e.shiftKey ? 10 : 1))
+      return run(() =>
+        this.commit((d) => {
+          for (const id of this.selection) {
+            const l = d.layers.find((x) => x.id === id)
+            l.vars ??= {}
+            l.vars["--translate-x"] = px(num(l.vars["--translate-x"]) + dx)
+            l.vars["--translate-y"] = px(num(l.vars["--translate-y"]) + dy)
+          }
+        }),
+      )
+    }
+    for (const t of this.types.values()) {
+      if (t.key && k === t.key) return run(() => this.addLayer(t.type))
+    }
+  }
+
+  // Commands from data-atelier-command buttons (toolbar, menus).
+  command(name, el) {
+    switch (name) {
+      case "undo":
+        return this.undo()
+      case "redo":
+        return this.redo()
+      case "zoom-in":
+        return this.zoomTo(this.zoom * 1.25)
+      case "zoom-out":
+        return this.zoomTo(this.zoom / 1.25)
+      case "zoom-fit":
+        return this.fit()
+      case "zoom":
+        return this.zoomTo(num(el.dataset.atelierZoom, 100) / 100)
+      case "add":
+        return this.addLayer(el.dataset.atelierType)
+      case "delete":
+        return this.removeSelected()
+      case "duplicate":
+        return this.duplicateSelected()
+      case "deselect":
+        return this.select([])
+    }
+  }
+}
+
+define("atelier", {
+  selector: '[data-slot="atelier"]',
+  mount(root) {
+    const editor = new Editor(root)
+    return editor.mount()
+  },
+})

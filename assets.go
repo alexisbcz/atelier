@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 
+	"github.com/alexisbcz/components/ui/runtime"
 	h "github.com/alexisbcz/libhtml"
 )
 
@@ -15,6 +16,13 @@ const AssetsPrefix = "/_atelier/"
 
 //go:embed static/atelier.css
 var static embed.FS
+
+//go:embed static/atelier.js
+var script string
+
+// The editor runtime is a module of the components runtime: it is served
+// and loaded with it (runtime.Scripts).
+func init() { runtime.Module("atelier", script) }
 
 // Assets serves the editor's stylesheet under AssetsPrefix:
 //

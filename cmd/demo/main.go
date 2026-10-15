@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexisbcz/atelier"
 	"github.com/alexisbcz/components/ui/runtime"
+	"github.com/alexisbcz/icons/lucide"
 	h "github.com/alexisbcz/libhtml"
 )
 
@@ -58,7 +59,20 @@ func editor() h.Node {
 		atelier.Header(),
 		atelier.Content(
 			atelier.Panel(atelier.SideLeft),
-			atelier.Canvas(atelier.Frame()),
+			atelier.Canvas(atelier.Frame(),
+				atelier.Toolbar(
+					atelier.ToolbarGroup(
+						atelier.ToolbarButton("Undo", lucide.Undo2(), h.Data("atelier-command", "undo")),
+						atelier.ToolbarButton("Redo", lucide.Redo2(), h.Data("atelier-command", "redo")),
+					),
+					atelier.ToolbarSeparator(),
+					atelier.ToolbarGroup(
+						atelier.ToolbarButton("Frame", lucide.Frame(), h.Data("atelier-command", "add"), h.Data("atelier-type", "frame")),
+						atelier.ToolbarButton("Text", lucide.Type(), h.Data("atelier-command", "add"), h.Data("atelier-type", "text")),
+						atelier.ToolbarButton("Image", lucide.Image(), h.Data("atelier-command", "add"), h.Data("atelier-type", "image")),
+					),
+				),
+			),
 			atelier.Panel(atelier.SideRight),
 		),
 	)

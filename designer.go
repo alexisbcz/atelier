@@ -121,13 +121,27 @@ func Pane(title string, forTypes []string, children ...any) h.Node {
 	return el.Children(h.Div(h.Data("slot", "atelier-pane-content"), h.Class("flex flex-col gap-2"), h.Group(children...)))
 }
 
-// Canvas is the scrollable, zoomable surface holding the frame.
+// Canvas is the pannable, zoomable surface holding the frame. Toolbars
+// among its children float over it, outside the zoomed viewport:
+//
+//	atelier.Canvas(atelier.Frame(), atelier.Toolbar(...))
 func Canvas(children ...any) h.Node {
+	var inner, chrome []any
+	for _, c := range children {
+		if el, ok := c.(*h.Element); ok {
+			if slot, _ := el.GetAttr("data-slot"); slot == "atelier-toolbar" {
+				chrome = append(chrome, c)
+				continue
+			}
+		}
+		inner = append(inner, c)
+	}
 	return h.Div(h.Data("slot", "atelier-canvas"),
 		h.Class("relative min-w-0 flex-1 touch-none overflow-hidden bg-muted outline-none select-none"),
 		h.Attr("tabindex", "0"),
-		h.Div(h.Data("slot", "atelier-viewport"), h.Class("absolute top-0 left-0 origin-top-left"), h.Group(children...)),
-		h.Div(h.Data("slot", "atelier-overlay"), h.Class("pointer-events-none absolute inset-0")),
+		h.Div(h.Data("slot", "atelier-viewport"), h.Class("absolute top-0 left-0 origin-top-left"), h.Group(inner...)),
+		h.Div(h.Data("slot", "atelier-overlay"), h.Class("pointer-events-none absolute inset-0 overflow-hidden")),
+		h.Group(chrome...),
 	)
 }
 

@@ -6,8 +6,8 @@ import (
 	h "github.com/alexisbcz/libhtml"
 )
 
-// Toolbar floats at the bottom of the canvas.
-func Toolbar(children ...any) h.Node {
+// Toolbar floats at the bottom of the canvas (pass it to Canvas).
+func Toolbar(children ...any) *h.Element {
 	return h.Div(h.Data("slot", "atelier-toolbar"),
 		h.Class("pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center"),
 		h.Div(h.Class("pointer-events-auto flex h-10 items-center gap-1 rounded-xl border bg-background px-1.5 shadow-md"),
