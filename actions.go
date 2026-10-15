@@ -327,3 +327,16 @@ func ActionDocumentSize() h.Node {
 		Action("Size", num("width", "W"), num("height", "H")),
 	)
 }
+
+// ActionAlign aligns the selection: a single layer to the frame, several
+// layers to their bounds.
+func ActionAlign() h.Node {
+	b := func(label, edge string, icon func(children ...any) *h.Element) h.Node {
+		return CommandButton(label, "align", icon(), h.Data("atelier-edge", edge))
+	}
+	return Action("Align",
+		b("Align left", "left", lucide.AlignStartVertical), b("Align centers horizontally", "center", lucide.AlignCenterVertical),
+		b("Align right", "right", lucide.AlignEndVertical), b("Align top", "top", lucide.AlignStartHorizontal),
+		b("Align middles", "middle", lucide.AlignCenterHorizontal), b("Align bottom", "bottom", lucide.AlignEndHorizontal),
+	)
+}

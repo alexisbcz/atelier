@@ -1124,6 +1124,31 @@ class Editor {
     )
   }
 
+  // Aligns the selection's bounds edges: one layer to the frame, several
+  // to their shared bounds. Positions are relative to each layer's frame.
+  align(edge) {
+    const layers = this.selected()
+    if (!layers.length) return
+    const ref = layers.length === 1 ? { x0: 0, y0: 0, x1: this.doc.width, y1: this.doc.height } : this.bounds(layers)
+    this.commit((d) => {
+      for (const sl of layers) {
+        const l = d.layers.find((x) => x.id === sl.id)
+        const b = this.bounds([sl])
+        let dx = 0
+        let dy = 0
+        if (edge === "left") dx = ref.x0 - b.x0
+        if (edge === "center") dx = (ref.x0 + ref.x1) / 2 - (b.x0 + b.x1) / 2
+        if (edge === "right") dx = ref.x1 - b.x1
+        if (edge === "top") dy = ref.y0 - b.y0
+        if (edge === "middle") dy = (ref.y0 + ref.y1) / 2 - (b.y0 + b.y1) / 2
+        if (edge === "bottom") dy = ref.y1 - b.y1
+        l.vars ??= {}
+        l.vars["--at-x"] = px(num(l.vars["--at-x"]) + dx)
+        l.vars["--at-y"] = px(num(l.vars["--at-y"]) + dy)
+      }
+    })
+  }
+
   // Moves the selected layers among their siblings: +1 forward, -1
   // backward, Infinity to the front, -Infinity to the back.
   reorder(step) {
@@ -1378,6 +1403,8 @@ class Editor {
         return this.duplicateSelected()
       case "deselect":
         return this.select([])
+      case "align":
+        return this.align(el.dataset.atelierEdge)
       case "cut":
         return this.cut()
       case "copy":
