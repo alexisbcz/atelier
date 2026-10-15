@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/alexisbcz/components/lib"
+	cm "github.com/alexisbcz/components/ui/context-menu"
 	h "github.com/alexisbcz/libhtml"
 )
 
@@ -135,7 +136,12 @@ func Pane(title string, forTypes []string, children ...any) h.Node {
 //	atelier.Canvas(atelier.Frame(), atelier.Toolbar(...))
 func Canvas(children ...any) h.Node {
 	var inner, chrome []any
+	var menu *canvasMenu
 	for _, c := range children {
+		if m, ok := c.(*canvasMenu); ok {
+			menu = m
+			continue
+		}
 		if el, ok := c.(*h.Element); ok {
 			if slot, _ := el.GetAttr("data-slot"); slot == "atelier-toolbar" {
 				chrome = append(chrome, c)
@@ -144,13 +150,40 @@ func Canvas(children ...any) h.Node {
 		}
 		inner = append(inner, c)
 	}
-	return h.Div(h.Data("slot", "atelier-canvas"),
+	canvas := h.Div(h.Data("slot", "atelier-canvas"),
 		h.Class("relative min-w-0 flex-1 touch-none overflow-hidden bg-muted outline-none select-none"),
 		h.Attr("tabindex", "0"),
 		h.Div(h.Data("slot", "atelier-viewport"), h.Class("absolute top-0 left-0 origin-top-left"), h.Group(inner...)),
 		h.Div(h.Data("slot", "atelier-overlay"), h.Class("pointer-events-none absolute inset-0 overflow-hidden")),
 		h.Group(chrome...),
 	)
+	if menu == nil {
+		return canvas
+	}
+	return cm.ContextMenu(cm.Trigger(lib.AsChild, canvas), cm.Content(h.Class("w-52"), h.Group(menu.items...)))
+}
+
+type canvasMenu struct{ items []any }
+
+func (m *canvasMenu) Render(w io.Writer) error { return nil }
+
+// CanvasMenu is the canvas's right-click menu (pass it to Canvas): items
+// are context-menu items carrying commands. Without items, it has the
+// editing commands.
+func CanvasMenu(items ...any) h.Node {
+	if len(items) == 0 {
+		item := func(label, command, keys string) h.Node {
+			return cm.Item(Command(command), label, cm.Shortcut(keys))
+		}
+		items = []any{
+			item("Cut", CommandCut, mod()+"X"), item("Copy", CommandCopy, mod()+"C"), item("Paste", CommandPaste, mod()+"V"),
+			item("Duplicate", CommandDuplicate, mod()+"D"), cm.Separator(),
+			item("Bring to front", CommandFront, "⇧"+mod()+"]"), item("Bring forward", CommandForward, mod()+"]"),
+			item("Send backward", CommandBackward, mod()+"["), item("Send to back", CommandBack, "⇧"+mod()+"["),
+			cm.Separator(), cm.Item(cm.VariantDestructive, Command(CommandDelete), "Delete", cm.Shortcut("⌫")),
+		}
+	}
+	return &canvasMenu{items: items}
 }
 
 // Frame is the artboard: it renders the document's layers.

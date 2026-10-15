@@ -207,6 +207,69 @@ class Editor {
     return l
   }
 
+  // The selected layers and everything they hold.
+  withDescendants(ids) {
+    const all = new Set(ids)
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const l of this.doc.layers) {
+        if (l.parent && all.has(l.parent) && !all.has(l.id)) {
+          all.add(l.id)
+          grew = true
+        }
+      }
+    }
+    return this.doc.layers.filter((l) => all.has(l.id))
+  }
+
+  copy() {
+    if (!this.selection.length) return
+    const text = JSON.stringify({ atelier: 1, layers: clone(this.withDescendants(this.selection)) })
+    this.clip = text
+    navigator.clipboard?.writeText(text).catch(() => {})
+  }
+
+  cut() {
+    this.copy()
+    this.removeSelected()
+  }
+
+  async paste(text) {
+    text ??= await navigator.clipboard?.readText?.().catch(() => null)
+    text ||= this.clip
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch {
+      return
+    }
+    if (!data || data.atelier !== 1 || !Array.isArray(data.layers)) return
+    const ids = new Map(data.layers.map((l) => [l.id, uid()]))
+    const roots = []
+    const layers = data.layers
+      .filter((l) => l && typeof l.type === "string" && this.types.has(l.type))
+      .map((l) => {
+        const c = clone(l)
+        c.id = ids.get(l.id)
+        if (c.parent && ids.has(c.parent)) c.parent = ids.get(c.parent)
+        else {
+          // A pasted root lands at the root, offset from the original.
+          delete c.parent
+          c.vars ??= {}
+          c.vars["--at-x"] = px(num(c.vars["--at-x"]) + 20)
+          c.vars["--at-y"] = px(num(c.vars["--at-y"]) + 20)
+          roots.push(c.id)
+        }
+        return c
+      })
+    if (!layers.length) return
+    this.commit((d) => d.layers.push(...layers))
+    this.select(roots)
+    // Pasting again offsets again.
+    this.clip = JSON.stringify({ atelier: 1, layers: clone(this.withDescendants(roots)) })
+  }
+
   removeSelected() {
     const ids = new Set(this.selection)
     if (!ids.size) return
@@ -573,6 +636,25 @@ class Editor {
     on(this.canvas, "wheel", (e) => this.onWheel(e), { passive: false })
     on(this.canvas, "pointerdown", (e) => this.onPointerDown(e))
     on(this.canvas, "dblclick", (e) => this.onDoubleClick(e))
+    on(document, "paste", (e) => {
+      if (this.readOnly || !this.root.isConnected) return
+      const t = e.target
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t?.isContentEditable) return
+      if (!this.root.contains(document.activeElement) && document.activeElement !== document.body) return
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"))
+      e.preventDefault()
+      if (files.length) {
+        const r = this.canvas.getBoundingClientRect()
+        return this.dropFiles(files, r.left + r.width / 2, r.top + r.height / 2)
+      }
+      this.paste(e.clipboardData?.getData("text/plain") || this.clip)
+    })
+    // A right click selects the layer under the pointer (for the menu).
+    on(this.canvas, "pointerdown", (e) => {
+      if (e.button !== 2 || this.readOnly) return
+      const l = this.hit(e.target)
+      if (l && !this.selection.includes(l.id)) this.select([l.id])
+    })
     on(this.canvas, "dragover", (e) => {
       if (!this.readOnly && [...(e.dataTransfer?.items ?? [])].some((i) => i.kind === "file")) e.preventDefault()
     })
@@ -1245,6 +1327,9 @@ class Editor {
     if (mod && k === "0") return run(() => this.fit())
     if (this.readOnly) return
     if (mod && k === "d") return run(() => this.duplicateSelected())
+    if (mod && k === "c") return run(() => this.copy())
+    if (mod && k === "x") return run(() => this.cut())
+    if (mod && k === "v") return // the paste event handles it (text or image files)
     if (mod && k === "]") return run(() => this.reorder(e.shiftKey ? Infinity : 1))
     if (mod && k === "[") return run(() => this.reorder(e.shiftKey ? -Infinity : -1))
     if (mod && k === "a") return run(() => this.select(this.doc.layers.filter((l) => !l.parent).map((l) => l.id)))
@@ -1293,6 +1378,12 @@ class Editor {
         return this.duplicateSelected()
       case "deselect":
         return this.select([])
+      case "cut":
+        return this.cut()
+      case "copy":
+        return this.copy()
+      case "paste":
+        return this.paste()
       case "forward":
         return this.reorder(1)
       case "backward":
@@ -1380,7 +1471,24 @@ class Editor {
     }
     const onChange = (e) => {
       const el = e.target
-      if (!this.root.contains(el) || !this.selection.length) return
+      if (!this.root.contains(el)) return
+      if (el.dataset.atelierDoc || el.dataset.atelierDocPreset !== undefined) {
+        let [w, h] = [this.doc.width, this.doc.height]
+        if (el.dataset.atelierDoc === "width") w = num(el.value, w)
+        else if (el.dataset.atelierDoc === "height") h = num(el.value, h)
+        else if (el.value) [w, h] = el.value.split("x").map(Number)
+        w = Math.max(1, Math.min(100000, Math.round(w)))
+        h = Math.max(1, Math.min(100000, Math.round(h)))
+        if (w !== this.doc.width || h !== this.doc.height) {
+          this.commit((d) => {
+            d.width = w
+            d.height = h
+          })
+          this.fit()
+        }
+        return
+      }
+      if (!this.selection.length) return
       if (el.tagName === "SELECT" && el.dataset.atelierVar) write(el, false)
       else if (el.dataset.atelierVar || el.dataset.atelierValue !== undefined) this.end()
     }
@@ -1431,6 +1539,13 @@ class Editor {
     }
     for (const sw of this.root.querySelectorAll("[data-atelier-swatch]")) {
       sw.style.background = (l && l.vars?.[sw.dataset.atelierSwatch]) || "transparent"
+    }
+    for (const el of this.root.querySelectorAll("[data-atelier-doc]")) {
+      if (el !== document.activeElement) el.value = String(this.doc[el.dataset.atelierDoc] ?? "")
+    }
+    for (const el of this.root.querySelectorAll("[data-atelier-doc-preset]")) {
+      const v = `${this.doc.width}x${this.doc.height}`
+      el.value = [...el.options].some((o) => o.value === v) ? v : ""
     }
     for (const el of this.root.querySelectorAll("[data-atelier-value]")) {
       el.disabled = !l

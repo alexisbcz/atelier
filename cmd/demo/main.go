@@ -91,7 +91,7 @@ func editor(doc atelier.Document) h.Node {
 		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
 		atelier.Content(
 			atelier.Panel(atelier.SideLeft, atelier.PaneLayers()),
-			atelier.Canvas(atelier.Frame(),
+			atelier.Canvas(atelier.Frame(), atelier.CanvasMenu(),
 				atelier.Toolbar(
 					atelier.ToolbarGroup(
 						atelier.ToolbarButton("Undo", lucide.Undo2(), h.Data("atelier-command", "undo")),
@@ -109,6 +109,7 @@ func editor(doc atelier.Document) h.Node {
 				),
 			),
 			atelier.Panel(atelier.SideRight,
+				atelier.Pane("Frame", nil, atelier.ActionDocumentSize()),
 				atelier.Pane("Layer", nil, atelier.ActionPosition(), atelier.ActionSize()),
 				atelier.Pane("Styles", nil, atelier.ActionRadius(), atelier.ActionBorder(), atelier.ActionShadow(), atelier.ActionFill(), atelier.ActionOpacity()),
 				atelier.Pane("Transforms", nil, atelier.ActionRotate(), atelier.ActionFlip()),

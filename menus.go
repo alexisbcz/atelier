@@ -26,6 +26,9 @@ const (
 	CommandExportPDF  = "export-pdf"
 	CommandExportJSON = "export-json"
 	CommandShortcuts  = "shortcuts"
+	CommandCut        = "cut"
+	CommandCopy       = "copy"
+	CommandPaste      = "paste"
 	CommandForward    = "forward"
 	CommandBackward   = "backward"
 	CommandFront      = "front"
@@ -116,6 +119,7 @@ func shortcutsDialog(types Types) h.Node {
 	}
 	rows := []any{
 		row("Undo", mod()+" Z"), row("Redo", "⇧ "+mod()+" Z"),
+		row("Copy", mod()+" C"), row("Cut", mod()+" X"), row("Paste", mod()+" V"),
 		row("Duplicate", mod()+" D"), row("Select all", mod()+" A"), row("Delete", "⌫"),
 		row("Nudge", "← ↑ → ↓"), row("Nudge by 10", "⇧ ← ↑ → ↓"),
 		row("Zoom in", mod()+" +"), row("Zoom out", mod()+" −"), row("Zoom to fit", mod()+" 0"),

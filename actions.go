@@ -295,3 +295,35 @@ func ActionFilters() h.Node {
 		Action("Sepia", Slider(VarSepia, "%", 0, 100, 1)),
 	)
 }
+
+// --- document ----------------------------------------------------------------
+
+// FrameSizes are the presets ActionDocumentSize offers.
+var FrameSizes = []struct {
+	Label         string
+	Width, Height int
+}{
+	{"Square post", 1080, 1080}, {"Portrait post", 1080, 1350}, {"Story", 1080, 1920},
+	{"Landscape", 1920, 1080}, {"Slide", 1280, 720}, {"A4 (96 dpi)", 794, 1123}, {"Letter (96 dpi)", 816, 1056},
+}
+
+// ActionDocumentSize edits the frame size, with presets.
+func ActionDocumentSize() h.Node {
+	num := func(field, prefix string) h.Node {
+		return h.Label(h.Class(fieldClass), h.Span(h.Class("shrink-0 text-muted-foreground"), prefix),
+			h.Input(h.Type("text"), h.Attr("inputmode", "numeric"), h.Class(inputClass), h.Data("atelier-doc", field),
+				h.Aria("label", "Frame "+field), h.Attr("autocomplete", "off")))
+	}
+	sel := h.Select(h.Class("h-full w-full min-w-0 cursor-pointer appearance-none bg-transparent outline-none"),
+		h.Data("atelier-doc-preset", ""), h.Aria("label", "Frame size preset"),
+		h.Option(h.Value(""), "Custom"))
+	for _, p := range FrameSizes {
+		v := strconv.Itoa(p.Width) + "x" + strconv.Itoa(p.Height)
+		sel.Children(h.Option(h.Value(v), p.Label+" · "+strconv.Itoa(p.Width)+"×"+strconv.Itoa(p.Height)))
+	}
+	return h.Group(
+		Action("Preset", h.Label(h.Class(fieldClass+" relative pr-6"), sel,
+			lucide.ChevronDown(h.Class("pointer-events-none absolute right-2 size-3.5 text-muted-foreground")))),
+		Action("Size", num("width", "W"), num("height", "H")),
+	)
+}
