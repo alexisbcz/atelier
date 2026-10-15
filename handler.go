@@ -204,6 +204,7 @@ func (ts Types) Validate(d Document, lim Limits) error {
 //	POST {prefix}render         renders one layer (Config.RenderURL)
 //	POST {prefix}upload         stores an image (Config.UploadURL)
 //	POST {prefix}generate       generates an image (Config.GenerateURL)
+//	POST {prefix}edit           edits an image with a prompt (Config.EditURL)
 //	GET  {prefix}media/{name}   serves a stored image
 //
 // Mount it under a prefix and protect it like any write endpoint (session
@@ -301,6 +302,50 @@ func Handler(store Store, opts HandlerOptions) http.Handler {
 				return
 			}
 			data, err := opts.Generator.Generate(ctx, req)
+			<-gpu
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			store2(w, r, data)
+		case r.Method == http.MethodPost && id == "edit":
+			editor, ok := opts.Generator.(ImageEditor)
+			if opts.Media == nil || !ok {
+				http.NotFound(w, r)
+				return
+			}
+			// The image comes with the request (multipart "image"): the
+			// server never fetches addresses clients choose.
+			r.Body = http.MaxBytesReader(w, r.Body, lim.MaxUploadBytes+1<<20)
+			f, _, err := r.FormFile("image")
+			if err != nil {
+				http.Error(w, "expected a multipart file field \"image\"", http.StatusBadRequest)
+				return
+			}
+			defer f.Close()
+			img, err := io.ReadAll(io.LimitReader(f, lim.MaxUploadBytes+1))
+			if err != nil || int64(len(img)) > lim.MaxUploadBytes || sniffImage(img) == "" {
+				http.Error(w, "invalid image", http.StatusBadRequest)
+				return
+			}
+			var req ImageRequest
+			if err := json.Unmarshal([]byte(r.FormValue("request")), &req); err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			if err := validateImageRequest(req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), generationTimeout)
+			defer cancel()
+			select {
+			case gpu <- struct{}{}:
+			case <-ctx.Done():
+				http.Error(w, "busy", http.StatusServiceUnavailable)
+				return
+			}
+			data, err := editor.Edit(ctx, img, req)
 			<-gpu
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadGateway)

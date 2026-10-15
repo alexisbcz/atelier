@@ -954,6 +954,47 @@ class Editor {
     }
   }
 
+  // Edits the selected image layer with a prompt; the result replaces its
+  // source (one undoable change).
+  async editImage(button) {
+    const box = button.closest('[data-slot="atelier-image-edit"]')
+    const l = this.selected()[0]
+    const status = box?.querySelector("[data-atelier-edit-status]")
+    if (!box || !l || l.type !== "image" || !this.config.editURL || button.disabled) return
+    const prompt = box.querySelector("[data-atelier-edit-prompt]").value.trim()
+    if (!l.value) return (status.textContent = "This layer has no image yet.")
+    if (!prompt) return (status.textContent = "Describe the change first.")
+    button.disabled = true
+    status.textContent = "Editing…"
+    const t0 = performance.now()
+    try {
+      const blob = await (await fetch(l.value)).blob()
+      // The model works at multiples of 64, at most 768 on the long side.
+      const img = await createImageBitmap(blob)
+      const k = Math.min(1, 768 / Math.max(img.width, img.height))
+      const snap = (v) => Math.max(64, Math.round((v * k) / 64) * 64)
+      const form = new FormData()
+      form.append("image", blob, "image")
+      form.append(
+        "request",
+        JSON.stringify({ prompt, width: snap(img.width), height: snap(img.height), strength: num(box.querySelector("[data-atelier-edit-strength]").value, 0.45) }),
+      )
+      const res = await fetch(this.config.editURL, { method: "POST", body: form, credentials: "same-origin" })
+      if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
+      const url = this.resolve((await res.json()).url, this.config.editURL)
+      const id = l.id
+      this.commit((d) => {
+        const x = d.layers.find((y) => y.id === id)
+        if (x) x.value = url
+      })
+      status.textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)} s.`
+    } catch (err) {
+      status.textContent = "Failed: " + err.message
+    } finally {
+      button.disabled = false
+    }
+  }
+
   // Inserts an image layer, fit in 60% of the frame and centered.
   insertImage(url, name, w, h) {
     const max = Math.min(this.doc.width, this.doc.height) * 0.6
@@ -1834,6 +1875,8 @@ class Editor {
       }
       case "generate":
         return this.generate(el)
+      case "edit-image":
+        return this.editImage(el)
       case "insert":
         return this.insertTemplate(JSON.parse(el.dataset.atelierTemplate || "[]"))
       case "align":

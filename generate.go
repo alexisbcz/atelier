@@ -28,6 +28,13 @@ type ImageRequest struct {
 	CFG   float64 `json:"cfg,omitempty"`
 	// Seed makes results reproducible (-1: random).
 	Seed int64 `json:"seed,omitempty"`
+	// Strength is how much an edit changes the image (0 to 1; edits only).
+	Strength float64 `json:"strength,omitempty"`
+}
+
+// ImageEditor changes an image to follow a prompt (image to image).
+type ImageEditor interface {
+	Edit(ctx context.Context, image []byte, req ImageRequest) ([]byte, error)
 }
 
 // ImageGenerator turns a prompt into an image (PNG or JPEG bytes).
@@ -98,6 +105,55 @@ func (s SDServer) Generate(ctx context.Context, req ImageRequest) ([]byte, error
 		return nil, fmt.Errorf("atelier: image server: unexpected response %.200s", b)
 	}
 	return base64.StdEncoding.DecodeString(out.Data[0].B64JSON)
+}
+
+// Edit implements ImageEditor with the server's img2img endpoint: the
+// image is the starting point, Strength how far the result may move away
+// from it.
+func (s SDServer) Edit(ctx context.Context, image []byte, req ImageRequest) ([]byte, error) {
+	steps := s.Steps
+	req = withRequestDefaults(req, 4, s.CFG)
+	if steps > 0 && req.Steps == 4 {
+		req.Steps = steps
+	}
+	if req.Strength <= 0 || req.Strength > 1 {
+		req.Strength = 0.5
+	}
+	body, _ := json.Marshal(map[string]any{
+		"prompt": req.Prompt, "negative_prompt": req.Negative,
+		"init_images":        []string{base64.StdEncoding.EncodeToString(image)},
+		"denoising_strength": req.Strength,
+		"steps":              req.Steps, "cfg_scale": req.CFG, "seed": req.Seed,
+		"width": req.Width, "height": req.Height,
+	})
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, s.URL+"/sdapi/v1/img2img", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Set("Content-Type", "application/json")
+	c := s.Client
+	if c == nil {
+		c = http.DefaultClient
+	}
+	res, err := c.Do(r)
+	if err != nil {
+		return nil, fmt.Errorf("atelier: image server: %w", err)
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("atelier: image server: %s: %.200s", res.Status, b)
+	}
+	var out struct {
+		Images []string `json:"images"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil || len(out.Images) == 0 {
+		return nil, fmt.Errorf("atelier: image server: unexpected response %.200s", b)
+	}
+	return base64.StdEncoding.DecodeString(out.Images[0])
 }
 
 // SDCommand runs the stable-diffusion.cpp command (sd-cli) for each image.
@@ -176,6 +232,8 @@ func validateImageRequest(req ImageRequest) error {
 		return errors.New("steps must be at most 100")
 	case req.CFG < 0 || req.CFG > 30:
 		return errors.New("cfg must be at most 30")
+	case req.Strength < 0 || req.Strength > 1:
+		return errors.New("strength must be between 0 and 1")
 	}
 	return nil
 }

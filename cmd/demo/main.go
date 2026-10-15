@@ -28,7 +28,7 @@ func main() {
 	opts := atelier.HandlerOptions{Types: types, Media: atelier.NewMemoryMedia()}
 	if *sd != "" {
 		opts.Generator = atelier.SDServer{URL: *sd}
-		generate = "/designs/generate"
+		generate, edit = "/designs/generate", "/designs/edit"
 	}
 	http.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, opts)))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ var badge = atelier.LayerType{
 }
 
 // generate is the generation endpoint ("" without a generator).
-var generate string
+var generate, edit string
 
 // library holds the templates of the Library tab.
 var library = []atelier.Template{
@@ -123,7 +123,7 @@ var types = atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType
 
 func editor(doc atelier.Document, readOnly bool) h.Node {
 	return atelier.Designer(atelier.Config{Document: doc, Types: types, Class: "h-svh", ReadOnly: readOnly,
-		SaveURL: "/designs/sample", RenderURL: "/designs/render", UploadURL: "/designs/upload", GenerateURL: generate},
+		SaveURL: "/designs/sample", RenderURL: "/designs/render", UploadURL: "/designs/upload", GenerateURL: generate, EditURL: edit},
 		atelier.Header(
 			atelier.PanelToggle(atelier.SideLeft, "Layers", lucide.Layers()),
 			atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu(),
@@ -171,6 +171,7 @@ func editor(doc atelier.Document, readOnly bool) h.Node {
 					atelier.ActionFontStyle(), atelier.ActionTextDecoration(), atelier.ActionTextTransform(),
 					atelier.ActionTextShadow(), atelier.ActionTextStroke()),
 				atelier.Pane("Image", []string{"image"}, atelier.ActionImageURL(), atelier.ActionImageFit()),
+				atelier.Pane("Edit with AI", []string{"image"}, atelier.ActionImageEdit()),
 				atelier.Pane("Filters", []string{"image"}, atelier.ActionFilters()),
 			),
 		),

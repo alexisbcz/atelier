@@ -29,6 +29,9 @@ type Config struct {
 	// GenerateURL generates images from prompts (PaneGenerate): Handler
 	// serves it as {prefix}generate when it has a generator.
 	GenerateURL string
+	// EditURL edits image layers with a prompt (ActionImageEdit): Handler
+	// serves it as {prefix}edit when its generator can edit.
+	EditURL string
 	// ReadOnly shows the document without editing.
 	ReadOnly bool
 	// Class adds classes to the root element ("h-svh").
@@ -74,7 +77,7 @@ func Designer(cfg Config, children ...any) h.Node {
 			"type": t.Type, "name": t.Name, "key": t.Key, "container": t.Container, "defaults": t.Defaults,
 		})
 	}
-	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "renderURL": cfg.RenderURL, "uploadURL": cfg.UploadURL, "generateURL": cfg.GenerateURL, "readOnly": cfg.ReadOnly})
+	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "renderURL": cfg.RenderURL, "uploadURL": cfg.UploadURL, "generateURL": cfg.GenerateURL, "editURL": cfg.EditURL, "readOnly": cfg.ReadOnly})
 	return h.WithValue(designerKey{}, cfg,
 		h.Div(
 			h.Data("slot", "atelier"),

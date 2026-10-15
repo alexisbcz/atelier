@@ -142,11 +142,13 @@ go run ./cmd/demo -sd http://127.0.0.1:7860
 ```
 
 In your application, give the handler a generator and set
-`Config.GenerateURL`:
+`Config.GenerateURL`. `SDServer` also edits images: the inspector's "Edit
+with AI" action redraws the selected image from a prompt, keeping as much of
+it as the strength allows (`Config.EditURL`):
 
 ```go
 opts.Generator = atelier.SDServer{URL: "http://127.0.0.1:7860"}
-// Config.GenerateURL: "/designs/generate"
+// Config.GenerateURL: "/designs/generate", Config.EditURL: "/designs/edit"
 ```
 
 Any type with a `Generate` method fits `ImageGenerator`, so other backends plug in. SD-Turbo allows
