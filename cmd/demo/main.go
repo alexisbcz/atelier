@@ -90,7 +90,7 @@ func editor(doc atelier.Document) h.Node {
 		SaveURL: "/designs/sample", RenderURL: "/designs/render"},
 		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
 		atelier.Content(
-			atelier.Panel(atelier.SideLeft, atelier.PaneLayers()),
+			atelier.Panel(atelier.SideLeft, atelier.PageSelector(), atelier.PaneLayers()),
 			atelier.Canvas(atelier.Frame(), atelier.CanvasMenu(),
 				atelier.Toolbar(
 					atelier.ToolbarGroup(

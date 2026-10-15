@@ -127,8 +127,18 @@ func (ts Types) Validate(d Document, lim Limits) error {
 	if len(d.Layers) > lim.MaxLayers {
 		return fmt.Errorf("atelier: %d layers (max %d)", len(d.Layers), lim.MaxLayers)
 	}
+	pages := map[string]bool{}
+	for _, p := range d.Pages {
+		if p.ID == "" || len(p.ID) > 64 || pages[p.ID] {
+			return fmt.Errorf("atelier: invalid or duplicate page id %q", p.ID)
+		}
+		pages[p.ID] = true
+	}
 	byID := map[string]Layer{}
 	for _, l := range d.Layers {
+		if l.Page != "" && !pages[l.Page] {
+			return fmt.Errorf("atelier: layer %q: unknown page %q", l.ID, l.Page)
+		}
 		if l.ID == "" || len(l.ID) > 64 {
 			return fmt.Errorf("atelier: invalid layer id %q", l.ID)
 		}

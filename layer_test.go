@@ -88,3 +88,31 @@ func TestParseDocument(t *testing.T) {
 		t.Fatalf("ParseDocument = %+v, %v", d, err)
 	}
 }
+
+func TestPages(t *testing.T) {
+	d := Document{Pages: []Page{{ID: "p1", Name: "Cover"}, {ID: "p2", Name: "Back"}}, Layers: []Layer{
+		{ID: "a", Type: "text"}, // no page: the first page
+		{ID: "b", Type: "text", Page: "p2"},
+		{ID: "f", Type: "frame", Page: "p2"},
+		{ID: "c", Type: "text", Parent: "f"}, // follows its frame
+	}}
+	ids := func(ls []Layer) (out []string) {
+		for _, l := range ls {
+			out = append(out, l.ID)
+		}
+		return
+	}
+	if got := ids(d.OnPage("p1")); len(got) != 1 || got[0] != "a" {
+		t.Errorf("p1 = %v", got)
+	}
+	if got := ids(d.OnPage("p2")); len(got) != 2 || got[0] != "b" || got[1] != "f" {
+		t.Errorf("p2 = %v", got)
+	}
+	s := render(t, Types(DefaultTypes).RenderPage(d, "p2"))
+	if !strings.Contains(s, `data-layer-id="c"`) || strings.Contains(s, `data-layer-id="a"`) {
+		t.Errorf("RenderPage p2 = %s", s)
+	}
+	if err := Types(DefaultTypes).Validate(Document{Layers: []Layer{{ID: "x", Type: "text", Page: "nope"}}}, Limits{}); err == nil {
+		t.Error("unknown page accepted")
+	}
+}

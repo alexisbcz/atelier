@@ -73,6 +73,7 @@ class Editor {
     this.overlay = root.querySelector('[data-slot="atelier-overlay"]')
     this.frame = root.querySelector('[data-slot="atelier-frame"]')
     this.selection = []
+    this.page = this.pageIds()[0]
     this.past = []
     this.future = []
     this.zoom = 1
@@ -89,6 +90,67 @@ class Editor {
 
   selected() {
     return this.selection.map((id) => this.layer(id)).filter(Boolean)
+  }
+
+  // --- pages --------------------------------------------------------------
+
+  pageIds() {
+    const pages = this.doc.pages ?? []
+    return pages.length ? pages.map((p) => p.id) : [""]
+  }
+
+  // The page a layer is on: its root frame's page, the first page by
+  // default.
+  pageOf(l) {
+    while (l?.parent) l = this.layer(l.parent)
+    return l?.page || this.pageIds()[0]
+  }
+
+  onPage(l) {
+    return this.pageOf(l) === this.page
+  }
+
+  showPage(id) {
+    if (!this.pageIds().includes(id)) id = this.pageIds()[0]
+    if (id === this.page) return
+    this.stopEditing()
+    this.page = id
+    this.selection = []
+    this.sync()
+    this.notify()
+  }
+
+  addPage() {
+    const id = "p" + uid()
+    this.commit((d) => {
+      d.pages ??= []
+      if (!d.pages.length) d.pages.push({ id: "p" + uid(), name: "Page 1" })
+      d.pages.push({ id, name: "Page " + (d.pages.length + 1) })
+    })
+    this.showPage(id)
+  }
+
+  deletePage() {
+    const ids = this.pageIds()
+    if (ids.length < 2) return
+    const gone = this.page
+    const roots = this.doc.layers.filter((l) => !l.parent && this.pageOf(l) === gone).map((l) => l.id)
+    const remove = new Set(this.withDescendants(roots).map((l) => l.id))
+    this.commit((d) => {
+      d.pages = d.pages.filter((p) => p.id !== gone)
+      d.layers = d.layers.filter((l) => !remove.has(l.id))
+      // Layers of the first page may have no page: keep them first.
+      if (ids[0] === gone) for (const l of d.layers) if (!l.parent && !l.page) l.page = d.pages[0].id
+    })
+    this.showPage(this.pageIds()[Math.max(0, ids.indexOf(gone) - 1)])
+  }
+
+  renamePage(name) {
+    if (!name.trim() || !this.doc.pages?.length) return
+    this.commit((d) => {
+      const p = d.pages.find((x) => x.id === this.page)
+      if (p) p.name = name.trim()
+    })
   }
 
   // Applies fn to a copy of the document and records the previous state.
@@ -195,6 +257,7 @@ class Editor {
     l.name ||= t.name
     l.vars ??= {}
     const { vars, ...rest } = init
+    if (this.page) l.page = this.page
     Object.assign(l, rest)
     Object.assign(l.vars, vars ?? {})
     // Centered in the frame.
@@ -256,6 +319,8 @@ class Editor {
         else {
           // A pasted root lands at the root, offset from the original.
           delete c.parent
+          if (this.page) c.page = this.page
+          else delete c.page
           c.vars ??= {}
           c.vars["--at-x"] = px(num(c.vars["--at-x"]) + 20)
           c.vars["--at-y"] = px(num(c.vars["--at-y"]) + 20)
@@ -349,10 +414,12 @@ class Editor {
 
   sync() {
     const seen = new Set()
+    if (!this.pageIds().includes(this.page)) this.page = this.pageIds()[0]
     const place = (parentId, container) => {
       let prev = null
       for (const l of this.doc.layers) {
         if ((l.parent ?? "") !== parentId) continue
+        if (!parentId && !this.onPage(l)) continue
         seen.add(l.id)
         let el = this.element(l.id)
         if (!el) el = this.create(l)
@@ -692,6 +759,17 @@ class Editor {
     for (const el of this.root.querySelectorAll('[data-atelier-command="undo"]')) el.disabled = !this.past.length
     for (const el of this.root.querySelectorAll('[data-atelier-command="redo"]')) el.disabled = !this.future.length
     this.renderTree()
+    for (const sel of this.root.querySelectorAll("select[data-atelier-page-select]")) {
+      const pages = this.doc.pages?.length ? this.doc.pages : [{ id: "", name: "Page 1" }]
+      const key = JSON.stringify(pages)
+      if (sel.dataset.key !== key) {
+        sel.dataset.key = key
+        sel.replaceChildren(...pages.map((p) => new Option(p.name || "Page", p.id)))
+      }
+      sel.value = this.page
+    }
+    for (const el of this.root.querySelectorAll('[data-atelier-command="delete-page"]')) el.disabled = this.pageIds().length < 2
+    for (const el of this.root.querySelectorAll("[data-atelier-page-count]")) el.textContent = String(this.pageIds().length)
   }
 
   icon(name) {
@@ -706,14 +784,14 @@ class Editor {
     if (!list || this.renamingTree) return
     const rows = []
     const walk = (parent, depth) => {
-      const kids = this.doc.layers.filter((l) => (l.parent ?? "") === parent).reverse()
+      const kids = this.doc.layers.filter((l) => (l.parent ?? "") === parent && (parent || this.onPage(l))).reverse()
       for (const l of kids) {
         rows.push([l, depth])
         walk(l.id, depth + 1)
       }
     }
     walk("", 0)
-    const key = JSON.stringify(rows.map(([l, d]) => [l.id, l.name, l.type, !!l.hidden, !!l.locked, d])) + this.selection.join()
+    const key = this.page + JSON.stringify(rows.map(([l, d]) => [l.id, l.name, l.type, !!l.hidden, !!l.locked, d])) + this.selection.join()
     if (key === this.treeKey) return
     this.treeKey = key
     list.replaceChildren()
@@ -875,17 +953,34 @@ class Editor {
     canvas.toBlob((blob) => blob && this.download(blob, "design.png"), "image/png")
   }
 
+  // Copies of every page's frame (switching pages to render them).
+  async pageCopies() {
+    const current = this.page
+    const selection = this.selection
+    const out = []
+    for (const id of this.pageIds()) {
+      this.page = id
+      this.sync()
+      out.push(await this.frameCopy())
+    }
+    this.page = current
+    this.selection = selection
+    this.sync()
+    return out
+  }
+
   async exportPDF() {
-    const [css, copy] = await Promise.all([this.stylesheetText(), this.frameCopy()])
+    const [css, copies] = await Promise.all([this.stylesheetText(), this.pageCopies()])
     const { width, height } = this.doc
     const w = window.open("", "_blank")
     if (!w) return
     w.document.write(
       `<!doctype html><html><head><title>Design</title><style>${css}</style>` +
-        `<style>@page{size:${width}px ${height}px;margin:0}html,body{margin:0;padding:0}</style></head><body></body></html>`,
+        `<style>@page{size:${width}px ${height}px;margin:0}html,body{margin:0;padding:0}` +
+        `[data-slot="atelier-frame"]{break-after:page}[data-slot="atelier-frame"]:last-child{break-after:auto}</style></head><body></body></html>`,
     )
     w.document.close()
-    w.document.body.append(w.document.importNode(copy, true))
+    for (const copy of copies) w.document.body.append(w.document.importNode(copy, true))
     setTimeout(() => {
       w.focus()
       w.print()
@@ -1028,7 +1123,7 @@ class Editor {
     const xs = [0, this.doc.width / 2, this.doc.width]
     const ys = [0, this.doc.height / 2, this.doc.height]
     for (const l of this.doc.layers) {
-      if (exclude.has(l.id) || l.hidden) continue
+      if (exclude.has(l.id) || l.hidden || !this.onPage(l)) continue
       const b = this.bounds([l])
       xs.push(b.x0, (b.x0 + b.x1) / 2, b.x1)
       ys.push(b.y0, (b.y0 + b.y1) / 2, b.y1)
@@ -1106,7 +1201,7 @@ class Editor {
           height: (y1 - y0) * this.zoom + "px",
         })
         const hit = this.doc.layers
-          .filter((l) => !l.parent && !l.hidden && !l.locked)
+          .filter((l) => !l.parent && !l.hidden && !l.locked && this.onPage(l))
           .filter((l) => {
             const b = this.bounds([l])
             return b.x0 < x1 && b.x1 > x0 && b.y0 < y1 && b.y1 > y0
@@ -1357,7 +1452,7 @@ class Editor {
     if (mod && k === "v") return // the paste event handles it (text or image files)
     if (mod && k === "]") return run(() => this.reorder(e.shiftKey ? Infinity : 1))
     if (mod && k === "[") return run(() => this.reorder(e.shiftKey ? -Infinity : -1))
-    if (mod && k === "a") return run(() => this.select(this.doc.layers.filter((l) => !l.parent).map((l) => l.id)))
+    if (mod && k === "a") return run(() => this.select(this.doc.layers.filter((l) => !l.parent && this.onPage(l)).map((l) => l.id)))
     if (mod || e.altKey) return
     if (k === "escape") return run(() => this.select([]))
     if (k === "delete" || k === "backspace") return run(() => this.removeSelected())
@@ -1403,6 +1498,12 @@ class Editor {
         return this.duplicateSelected()
       case "deselect":
         return this.select([])
+      case "page":
+        return this.showPage(el.dataset.atelierPage)
+      case "add-page":
+        return this.addPage()
+      case "delete-page":
+        return this.deletePage()
       case "align":
         return this.align(el.dataset.atelierEdge)
       case "cut":
@@ -1499,6 +1600,7 @@ class Editor {
     const onChange = (e) => {
       const el = e.target
       if (!this.root.contains(el)) return
+      if (el.dataset.atelierPageSelect !== undefined) return this.showPage(el.value)
       if (el.dataset.atelierDoc || el.dataset.atelierDocPreset !== undefined) {
         let [w, h] = [this.doc.width, this.doc.height]
         if (el.dataset.atelierDoc === "width") w = num(el.value, w)

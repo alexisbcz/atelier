@@ -121,10 +121,13 @@ func (ts Types) RenderLayer(d Document, l Layer) h.Node {
 	return box
 }
 
-// RenderLayers renders the root layers of a document, in paint order.
-func (ts Types) RenderLayers(d Document) h.Node {
+// RenderLayers renders the first page of a document, in paint order.
+func (ts Types) RenderLayers(d Document) h.Node { return ts.RenderPage(d, d.PageIDs()[0]) }
+
+// RenderPage renders the layers of one page, in paint order.
+func (ts Types) RenderPage(d Document, page string) h.Node {
 	var out []any
-	for _, l := range d.Children("") {
+	for _, l := range d.OnPage(page) {
 		out = append(out, ts.RenderLayer(d, l))
 	}
 	return h.Group(out...)

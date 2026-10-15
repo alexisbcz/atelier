@@ -32,6 +32,9 @@ type Layer struct {
 	Vars map[string]string `json:"vars,omitempty"`
 	// Parent is the id of the frame holding the layer ("" for the root).
 	Parent string `json:"parent,omitempty"`
+	// Page is the id of the page the layer is on ("" for the first page;
+	// children follow their frame).
+	Page string `json:"page,omitempty"`
 	// Hidden layers stay in the document but don't render.
 	Hidden bool `json:"hidden,omitempty"`
 	// Locked layers can't be selected on the canvas.
@@ -162,11 +165,53 @@ func sanitizeValue(v string) string {
 	}, v)
 }
 
-// Document is what the editor edits: a frame size and its layers.
+// Document is what the editor edits: a frame size, its pages and its
+// layers. Every page has the frame size.
 type Document struct {
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
+	// Pages are the document's pages, in order. A document without pages
+	// has a single implicit page (id "").
+	Pages  []Page  `json:"pages,omitempty"`
 	Layers []Layer `json:"layers"`
+}
+
+// Page is one page of a document.
+type Page struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// PageIDs returns the document's page ids, in order ([""] without pages).
+func (d Document) PageIDs() []string {
+	if len(d.Pages) == 0 {
+		return []string{""}
+	}
+	ids := make([]string, len(d.Pages))
+	for i, p := range d.Pages {
+		ids[i] = p.ID
+	}
+	return ids
+}
+
+// OnPage returns the root layers of a page, in paint order. Layers without
+// a page are on the first page.
+func (d Document) OnPage(page string) []Layer {
+	first := d.PageIDs()[0]
+	var out []Layer
+	for _, l := range d.Layers {
+		if l.Parent != "" {
+			continue
+		}
+		p := l.Page
+		if p == "" {
+			p = first
+		}
+		if p == page || (page == "" && p == first) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // ParseDocument decodes a document saved as JSON.

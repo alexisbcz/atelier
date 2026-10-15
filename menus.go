@@ -29,6 +29,9 @@ const (
 	CommandCut        = "cut"
 	CommandCopy       = "copy"
 	CommandPaste      = "paste"
+	CommandPage       = "page" // with data-atelier-page
+	CommandAddPage    = "add-page"
+	CommandDeletePage = "delete-page"
 	CommandForward    = "forward"
 	CommandBackward   = "backward"
 	CommandFront      = "front"
@@ -172,6 +175,27 @@ func PaneLayers() h.Node {
 		return h.Div(h.Data("slot", "atelier-layer-tree"), h.Class("flex flex-col gap-0.5 p-2"),
 			h.Group(icons...),
 			h.Div(h.Data("atelier-layer-list", ""), h.Class("flex flex-col gap-0.5")),
+		).Render(w)
+	})
+}
+
+// PageSelector switches, adds and deletes pages.
+func PageSelector() h.Node {
+	return h.NodeFunc(func(w io.Writer) error {
+		cfg, _ := fromWriter(w)
+		sel := h.Select(h.Class("h-full w-full min-w-0 cursor-pointer appearance-none bg-transparent outline-none"),
+			h.Data("atelier-page-select", ""), h.Aria("label", "Page"))
+		if len(cfg.Document.Pages) == 0 {
+			sel.Children(h.Option(h.Value(""), "Page 1"))
+		}
+		for _, p := range cfg.Document.Pages {
+			sel.Children(h.Option(h.Value(p.ID), p.Name))
+		}
+		return h.Div(h.Data("slot", "atelier-pages"), h.Class("flex items-center gap-1 p-2"),
+			h.Label(h.Class(fieldClass+" relative pr-6"), sel,
+				lucide.ChevronDown(h.Class("pointer-events-none absolute right-2 size-3.5 text-muted-foreground"))),
+			CommandButton("Add page", CommandAddPage, lucide.Plus()),
+			CommandButton("Delete page", CommandDeletePage, lucide.Trash2()),
 		).Render(w)
 	})
 }
