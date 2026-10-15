@@ -16,8 +16,10 @@ runtime makes it interactive. It needs no Node.js and no build step.
 - Select, move, resize and rotate layers, with snapping guides and marquee selection.
 - Edit text in place, and drop or paste images onto the canvas.
 - An inspector for position, size, radius, borders, shadows, fills, filters and typography.
-- A layer tree, undo and redo, copy and paste, layer order, alignment and keyboard shortcuts.
-- Export to PNG, PDF and JSON.
+- A layer tree with drag and drop, grouping, undo and redo, copy and paste, layer order, alignment and keyboard shortcuts.
+- Pages, a library of Go templates, and sizes in pixels, inches, millimeters, centimeters or points at any DPI.
+- Export to PNG, PDF (one page per document page) and JSON.
+- Works on phones and tablets: the panels open as sheets, and two fingers zoom and pan.
 - Custom layer types written in Go: the server renders them, in the editor too.
 - Saving through an HTTP handler, with memory and file stores and document validation.
 - One embedded stylesheet for the editor and its components: no Tailwind setup needed.
@@ -129,12 +131,24 @@ actions for layout, styles, transforms, text and images, and the `Number`,
 with `atelier.Command(...)` runs an editor command when clicked, such as
 undo, add a layer or export.
 
+## Browser events
+
+The editor root dispatches `atelier:change` with the document after each
+change. The root element also exposes the editor, as `root.atelier`, for
+scripts that need to read the document or the selection:
+
+```js
+const root = document.querySelector('[data-slot="atelier"]')
+root.addEventListener("atelier:change", (e) => console.log(e.detail.document))
+```
+
 ## Keyboard shortcuts
 
 | Keys | Action |
 | --- | --- |
 | ⌘ Z, ⇧ ⌘ Z | Undo, redo |
 | ⌘ C, ⌘ X, ⌘ V, ⌘ D | Copy, cut, paste, duplicate |
+| ⌘ G, ⇧ ⌘ G | Group, ungroup |
 | ⌫ | Delete |
 | Arrows, ⇧ arrows | Nudge by 1 or 10 pixels |
 | ⌘ ], ⌘ [ | Bring forward, send backward |

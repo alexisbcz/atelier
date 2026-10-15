@@ -190,7 +190,8 @@ func CanvasMenu(items ...any) h.Node {
 		}
 		items = []any{
 			item("Cut", CommandCut, mod()+"X"), item("Copy", CommandCopy, mod()+"C"), item("Paste", CommandPaste, mod()+"V"),
-			item("Duplicate", CommandDuplicate, mod()+"D"), cm.Separator(),
+			item("Duplicate", CommandDuplicate, mod()+"D"),
+			item("Group", CommandGroup, mod()+"G"), item("Ungroup", CommandUngroup, "⇧"+mod()+"G"), cm.Separator(),
 			item("Bring to front", CommandFront, "⇧"+mod()+"]"), item("Bring forward", CommandForward, mod()+"]"),
 			item("Send backward", CommandBackward, mod()+"["), item("Send to back", CommandBack, "⇧"+mod()+"["),
 			cm.Separator(), cm.Item(cm.VariantDestructive, Command(CommandDelete), "Delete", cm.Shortcut("⌫")),

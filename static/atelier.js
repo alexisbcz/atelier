@@ -903,6 +903,68 @@ class Editor {
     }
   }
 
+  // Wraps the selected layers (siblings) in a new frame sized to their
+  // bounds; positions are converted so nothing moves.
+  group() {
+    const layers = this.selected()
+    if (!layers.length || !this.types.get("frame")?.container) return
+    const parent = layers[0].parent ?? ""
+    if (layers.some((l) => (l.parent ?? "") !== parent)) return
+    const b = this.bounds(layers)
+    const [ox, oy] = parent ? [this.box(this.layer(parent)).x, this.box(this.layer(parent)).y] : [0, 0]
+    const g = { id: uid(), name: "Group", type: "frame", vars: { "--at-width": px(b.x1 - b.x0), "--at-height": px(b.y1 - b.y0), "--at-x": px(b.x0 - ox), "--at-y": px(b.y0 - oy) } }
+    if (parent) g.parent = parent
+    else if (this.page) g.page = this.page
+    const ids = new Set(layers.map((l) => l.id))
+    this.commit((d) => {
+      // The group takes the place of its topmost member.
+      let at = -1
+      d.layers.forEach((l, i) => ids.has(l.id) && (at = i))
+      for (const l of d.layers) {
+        if (!ids.has(l.id)) continue
+        l.vars ??= {}
+        l.vars["--at-x"] = px(num(l.vars["--at-x"]) + ox - b.x0)
+        l.vars["--at-y"] = px(num(l.vars["--at-y"]) + oy - b.y0)
+        l.parent = g.id
+        delete l.page
+      }
+      d.layers.splice(at + 1, 0, g)
+      // Members after the group in paint order: move them after it.
+      const members = d.layers.filter((l) => ids.has(l.id))
+      d.layers = d.layers.filter((l) => !ids.has(l.id))
+      const gi = d.layers.findIndex((l) => l.id === g.id)
+      d.layers.splice(gi + 1, 0, ...members)
+    })
+    this.select([g.id])
+  }
+
+  // Replaces the selected frames by their children (positions kept).
+  ungroup() {
+    const frames = this.selected().filter((l) => this.types.get(l.type)?.container)
+    if (!frames.length) return
+    const out = []
+    this.commit((d) => {
+      for (const f of frames) {
+        const fx = num(f.vars?.["--at-x"])
+        const fy = num(f.vars?.["--at-y"])
+        for (const l of d.layers) {
+          if (l.parent !== f.id) continue
+          l.vars ??= {}
+          l.vars["--at-x"] = px(num(l.vars["--at-x"]) + fx)
+          l.vars["--at-y"] = px(num(l.vars["--at-y"]) + fy)
+          if (f.parent) l.parent = f.parent
+          else {
+            delete l.parent
+            if (f.page) l.page = f.page
+          }
+          out.push(l.id)
+        }
+        d.layers = d.layers.filter((l) => l.id !== f.id)
+      }
+    })
+    this.select(out)
+  }
+
   // Inserts a template's layers, centered in the frame, with new ids.
   insertTemplate(layers) {
     if (!Array.isArray(layers) || !layers.length) return
@@ -1636,6 +1698,7 @@ class Editor {
     if (mod && k === "z") return run(() => (e.shiftKey ? this.redo() : this.undo()))
     if (mod && k === "y") return run(() => this.redo())
     if (mod && k === "d") return run(() => this.duplicateSelected())
+    if (mod && k === "g") return run(() => (e.shiftKey ? this.ungroup() : this.group()))
     if (mod && k === "c") return run(() => this.copy())
     if (mod && k === "x") return run(() => this.cut())
     if (mod && k === "v") return // the paste event handles it (text or image files)
@@ -1696,6 +1759,10 @@ class Editor {
         return this.addPage()
       case "delete-page":
         return this.deletePage()
+      case "group":
+        return this.group()
+      case "ungroup":
+        return this.ungroup()
       case "toggle-panel": {
         for (const panel of this.root.querySelectorAll('[data-slot="atelier-panel"]')) {
           const open = panel.dataset.side === el.dataset.atelierSide && panel.dataset.open !== "true"

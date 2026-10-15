@@ -32,6 +32,8 @@ const (
 	CommandPage       = "page" // with data-atelier-page
 	CommandAddPage    = "add-page"
 	CommandDeletePage = "delete-page"
+	CommandGroup      = "group"
+	CommandUngroup    = "ungroup"
 	CommandForward    = "forward"
 	CommandBackward   = "backward"
 	CommandFront      = "front"
@@ -123,7 +125,7 @@ func shortcutsDialog(types Types) h.Node {
 	rows := []any{
 		row("Undo", mod()+" Z"), row("Redo", "⇧ "+mod()+" Z"),
 		row("Copy", mod()+" C"), row("Cut", mod()+" X"), row("Paste", mod()+" V"),
-		row("Duplicate", mod()+" D"), row("Select all", mod()+" A"), row("Delete", "⌫"),
+		row("Duplicate", mod()+" D"), row("Group", mod()+" G"), row("Ungroup", "⇧ "+mod()+" G"), row("Select all", mod()+" A"), row("Delete", "⌫"),
 		row("Nudge", "← ↑ → ↓"), row("Nudge by 10", "⇧ ← ↑ → ↓"),
 		row("Zoom in", mod()+" +"), row("Zoom out", mod()+" −"), row("Zoom to fit", mod()+" 0"),
 		row("Bring forward", mod()+" ]"), row("Send backward", mod()+" ["),
