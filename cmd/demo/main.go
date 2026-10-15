@@ -109,7 +109,7 @@ func editor(doc atelier.Document) h.Node {
 				),
 			),
 			atelier.Panel(atelier.SideRight,
-				atelier.Pane("Frame", nil, atelier.ActionDocumentSize()),
+				atelier.Pane("Frame", nil, atelier.ActionDocumentSize(), atelier.ActionUnits()),
 				atelier.Pane("Layer", nil, atelier.ActionAlign(), atelier.ActionPosition(), atelier.ActionSize()),
 				atelier.Pane("Styles", nil, atelier.ActionRadius(), atelier.ActionBorder(), atelier.ActionShadow(), atelier.ActionFill(), atelier.ActionOpacity()),
 				atelier.Pane("Transforms", nil, atelier.ActionRotate(), atelier.ActionFlip()),

@@ -170,6 +170,11 @@ func sanitizeValue(v string) string {
 type Document struct {
 	Width  float64 `json:"width"`
 	Height float64 `json:"height"`
+	// Unit is how sizes are shown and typed: "px" (default), "in", "mm",
+	// "cm" or "pt". Layers always store pixels.
+	Unit string `json:"unit,omitempty"`
+	// DPI converts pixels to physical units (default 96).
+	DPI float64 `json:"dpi,omitempty"`
 	// Pages are the document's pages, in order. A document without pages
 	// has a single implicit page (id "").
 	Pages  []Page  `json:"pages,omitempty"`
@@ -243,4 +248,33 @@ func (d Document) Find(id string) (Layer, bool) {
 		}
 	}
 	return Layer{}, false
+}
+
+// Units are the units a document can be shown in, with their size in
+// inches.
+var Units = map[string]float64{"in": 1, "mm": 1 / 25.4, "cm": 1 / 2.54, "pt": 1.0 / 72}
+
+// ToPx converts a length in the document's unit to pixels.
+func (d Document) ToPx(v float64) float64 {
+	inch, ok := Units[d.Unit]
+	if !ok {
+		return v
+	}
+	return v * inch * d.dpi()
+}
+
+// FromPx converts pixels to the document's unit.
+func (d Document) FromPx(px float64) float64 {
+	inch, ok := Units[d.Unit]
+	if !ok {
+		return px
+	}
+	return px / (inch * d.dpi())
+}
+
+func (d Document) dpi() float64 {
+	if d.DPI > 0 {
+		return d.DPI
+	}
+	return 96
 }

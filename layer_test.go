@@ -116,3 +116,16 @@ func TestPages(t *testing.T) {
 		t.Error("unknown page accepted")
 	}
 }
+
+func TestUnits(t *testing.T) {
+	a4 := Document{Unit: "mm", DPI: 300}
+	if px := a4.ToPx(210); px < 2480 || px > 2481 {
+		t.Errorf("210mm at 300 dpi = %v px", px)
+	}
+	if mm := a4.FromPx(a4.ToPx(297)); mm < 296.999 || mm > 297.001 {
+		t.Errorf("round trip = %v", mm)
+	}
+	if (Document{}).ToPx(12) != 12 {
+		t.Error("px documents convert to themselves")
+	}
+}

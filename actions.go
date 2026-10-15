@@ -340,3 +340,18 @@ func ActionAlign() h.Node {
 		b("Align middles", "middle", lucide.AlignCenterHorizontal), b("Align bottom", "bottom", lucide.AlignEndHorizontal),
 	)
 }
+
+// ActionUnits chooses the unit sizes are shown in, and the DPI.
+func ActionUnits() h.Node {
+	sel := h.Select(h.Class("h-full w-full min-w-0 cursor-pointer appearance-none bg-transparent outline-none"),
+		h.Data("atelier-doc-unit", ""), h.Aria("label", "Unit"),
+		h.Option(h.Value("px"), "Pixels"), h.Option(h.Value("in"), "Inches"), h.Option(h.Value("mm"), "Millimeters"),
+		h.Option(h.Value("cm"), "Centimeters"), h.Option(h.Value("pt"), "Points"))
+	return h.Group(
+		Action("Unit", h.Label(h.Class(fieldClass+" relative pr-6"), sel,
+			lucide.ChevronDown(h.Class("pointer-events-none absolute right-2 size-3.5 text-muted-foreground")))),
+		Action("DPI", h.Label(h.Class(fieldClass),
+			h.Input(h.Type("text"), h.Attr("inputmode", "numeric"), h.Class(inputClass), h.Data("atelier-doc", "dpi"),
+				h.Aria("label", "DPI"), h.Attr("autocomplete", "off")))),
+	)
+}

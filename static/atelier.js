@@ -92,6 +92,18 @@ class Editor {
     return this.selection.map((id) => this.layer(id)).filter(Boolean)
   }
 
+  // --- units --------------------------------------------------------------
+
+  // Pixels per unit of the document's unit (1 for px).
+  perUnit() {
+    const inch = { in: 1, mm: 1 / 25.4, cm: 1 / 2.54, pt: 1 / 72 }[this.doc.unit]
+    return inch ? inch * (this.doc.dpi || 96) : 1
+  }
+
+  unitName() {
+    return ["in", "mm", "cm", "pt"].includes(this.doc.unit) ? this.doc.unit : "px"
+  }
+
   // --- pages --------------------------------------------------------------
 
   pageIds() {
@@ -650,7 +662,9 @@ class Editor {
         })
         box.append(stem, rot)
         const label = document.createElement("div")
-        label.textContent = `${Math.round(b.w)} × ${Math.round(b.h)} px`
+        const k = this.perUnit()
+        const fmt = (v) => (k === 1 ? Math.round(v) : round(v / k))
+        label.textContent = `${fmt(b.w)} × ${fmt(b.h)} ${this.unitName()}`
         Object.assign(label.style, {
           position: "absolute",
           left: "50%",
@@ -972,11 +986,15 @@ class Editor {
   async exportPDF() {
     const [css, copies] = await Promise.all([this.stylesheetText(), this.pageCopies()])
     const { width, height } = this.doc
+    // Physical page size: pixels at the document's DPI.
+    const dpi = this.doc.dpi || 96
+    const pageSize = `${round(width / dpi)}in ${round(height / dpi)}in`
     const w = window.open("", "_blank")
     if (!w) return
     w.document.write(
       `<!doctype html><html><head><title>Design</title><style>${css}</style>` +
-        `<style>@page{size:${width}px ${height}px;margin:0}html,body{margin:0;padding:0}` +
+        `<style>@page{size:${pageSize};margin:0}html,body{margin:0;padding:0}` +
+        `[data-slot="atelier-frame"]{zoom:${round(96 / dpi)}}` +
         `[data-slot="atelier-frame"]{break-after:page}[data-slot="atelier-frame"]:last-child{break-after:auto}</style></head><body></body></html>`,
     )
     w.document.close()
@@ -1552,18 +1570,19 @@ class Editor {
   // The value a control shows for a property of a layer: the property
   // without its unit, or the effective value for the box properties.
   shown(l, prop, unit) {
+    const k = unit === "px" ? this.perUnit() : 1
     const v = l.vars?.[prop]
     if (v != null && v !== "") {
-      if (unit && String(v).endsWith(unit)) return String(round(num(v)))
+      if (unit && String(v).endsWith(unit)) return String(round(num(v) / k))
       return String(v)
     }
     if (prop in DEFAULTS) return DEFAULTS[prop]
     const b = this.box(l)
     switch (prop) {
       case "--at-width":
-        return String(round(b.w))
+        return String(round(b.w / k))
       case "--at-height":
-        return String(round(b.h))
+        return String(round(b.h / k))
       case "--at-x":
       case "--at-y":
       case "--at-rotate":
@@ -1580,7 +1599,7 @@ class Editor {
       if (unit && v !== "") {
         const n = parseFloat(v)
         if (!Number.isFinite(n)) return
-        v = round(n) + unit
+        v = round(unit === "px" ? n * this.perUnit() : n) + unit
       }
       this.setVars({ [prop]: v }, { live: isLive })
     }
@@ -1601,10 +1620,23 @@ class Editor {
       const el = e.target
       if (!this.root.contains(el)) return
       if (el.dataset.atelierPageSelect !== undefined) return this.showPage(el.value)
+      if (el.dataset.atelierDocUnit !== undefined) {
+        return this.commit((d) => {
+          if (el.value === "px") delete d.unit
+          else d.unit = el.value
+        })
+      }
+      if (el.dataset.atelierDoc === "dpi") {
+        const dpi = Math.max(1, Math.min(10000, num(el.value, 96)))
+        return this.commit((d) => {
+          if (dpi === 96) delete d.dpi
+          else d.dpi = dpi
+        })
+      }
       if (el.dataset.atelierDoc || el.dataset.atelierDocPreset !== undefined) {
         let [w, h] = [this.doc.width, this.doc.height]
-        if (el.dataset.atelierDoc === "width") w = num(el.value, w)
-        else if (el.dataset.atelierDoc === "height") h = num(el.value, h)
+        if (el.dataset.atelierDoc === "width") w = num(el.value, w / this.perUnit()) * this.perUnit()
+        else if (el.dataset.atelierDoc === "height") h = num(el.value, h / this.perUnit()) * this.perUnit()
         else if (el.value) [w, h] = el.value.split("x").map(Number)
         w = Math.max(1, Math.min(100000, Math.round(w)))
         h = Math.max(1, Math.min(100000, Math.round(h)))
@@ -1670,8 +1702,11 @@ class Editor {
       sw.style.background = (l && l.vars?.[sw.dataset.atelierSwatch]) || "transparent"
     }
     for (const el of this.root.querySelectorAll("[data-atelier-doc]")) {
-      if (el !== document.activeElement) el.value = String(this.doc[el.dataset.atelierDoc] ?? "")
+      if (el === document.activeElement) continue
+      const f = el.dataset.atelierDoc
+      el.value = f === "dpi" ? String(this.doc.dpi || 96) : String(round((this.doc[f] ?? 0) / this.perUnit()))
     }
+    for (const el of this.root.querySelectorAll("select[data-atelier-doc-unit]")) el.value = this.unitName()
     for (const el of this.root.querySelectorAll("[data-atelier-doc-preset]")) {
       const v = `${this.doc.width}x${this.doc.height}`
       el.value = [...el.options].some((o) => o.value === v) ? v : ""

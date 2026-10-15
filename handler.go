@@ -127,6 +127,12 @@ func (ts Types) Validate(d Document, lim Limits) error {
 	if len(d.Layers) > lim.MaxLayers {
 		return fmt.Errorf("atelier: %d layers (max %d)", len(d.Layers), lim.MaxLayers)
 	}
+	if _, ok := Units[d.Unit]; d.Unit != "" && d.Unit != "px" && !ok {
+		return fmt.Errorf("atelier: unknown unit %q", d.Unit)
+	}
+	if d.DPI < 0 || d.DPI > 10000 {
+		return fmt.Errorf("atelier: invalid dpi %v", d.DPI)
+	}
 	pages := map[string]bool{}
 	for _, p := range d.Pages {
 		if p.ID == "" || len(p.ID) > 64 || pages[p.ID] {
