@@ -7,14 +7,20 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,14 +52,16 @@ func server(t *testing.T, readOnly bool) (*httptest.Server, *atelier.MemoryStore
 	mux := http.NewServeMux()
 	mux.Handle(runtime.Prefix, runtime.Handler())
 	mux.Handle(atelier.AssetsPrefix, atelier.Assets())
-	mux.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, atelier.HandlerOptions{Media: atelier.NewMemoryMedia()})))
+	mux.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, atelier.HandlerOptions{
+		Media: atelier.NewMemoryMedia(), Generator: fakeGenerator{},
+	})))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		doc, _ := store.Load(r.Context(), "doc")
 		editor := atelier.Designer(atelier.Config{Document: doc, Class: "h-svh", ReadOnly: readOnly,
-			SaveURL: "/designs/doc", UploadURL: "/designs/upload"},
+			SaveURL: "/designs/doc", UploadURL: "/designs/upload", GenerateURL: "/designs/generate"},
 			atelier.Header(atelier.MainMenu(), atelier.ExportMenu()),
 			atelier.Content(
-				atelier.Panel(atelier.SideLeft, atelier.PageSelector(), atelier.PaneLayers()),
+				atelier.Panel(atelier.SideLeft, atelier.PageSelector(), atelier.PaneLayers(), atelier.PaneGenerate()),
 				atelier.Canvas(atelier.Frame(), atelier.CanvasMenu()),
 				atelier.Panel(atelier.SideRight,
 					atelier.Pane("Layer", nil, atelier.ActionAlign(), atelier.ActionPosition(), atelier.ActionSize()),
@@ -255,5 +263,36 @@ func TestReadOnly(t *testing.T) {
 	_ = key(ctx, "Delete")
 	if after := eval[string](t, ctx, `JSON.stringify(ed.doc)`); after != before {
 		t.Error("read-only document changed")
+	}
+}
+
+// fakeGenerator draws a solid image of the requested size.
+type fakeGenerator struct{}
+
+func (fakeGenerator) Generate(_ context.Context, req atelier.ImageRequest) ([]byte, error) {
+	img := image.NewRGBA(image.Rect(0, 0, req.Width, req.Height))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{37, 99, 235, 255}}, image.Point{}, draw.Src)
+	var b bytes.Buffer
+	err := png.Encode(&b, img)
+	return b.Bytes(), err
+}
+
+func TestGenerate(t *testing.T) {
+	srv, _ := server(t, false)
+	ctx := browser(t, srv.URL)
+	if err := chromedp.Run(ctx,
+		chromedp.SendKeys(`[data-atelier-gen-prompt]`, "a blue square", chromedp.ByQuery),
+		chromedp.Click(`[data-atelier-command="generate"]`, chromedp.ByQuery),
+		chromedp.Poll(`/Done/.test(document.querySelector("[data-atelier-gen-status]").textContent)`, nil),
+	); err != nil {
+		t.Fatal(err)
+	}
+	got := eval[string](t, ctx, `(() => { const l = ed.doc.layers.at(-1); return l.type + " " + l.value })()`)
+	if !strings.HasPrefix(got, "image /designs/media/") {
+		t.Errorf("generated layer = %q", got)
+	}
+	// The image loads from the media store.
+	if !eval[bool](t, ctx, `document.querySelector('[data-slot="atelier-frame"] img[src^="/designs/media/"]') !== null`) {
+		t.Error("no generated image on the canvas")
 	}
 }
