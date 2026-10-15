@@ -903,6 +903,68 @@ class Editor {
     }
   }
 
+  // Absolute path of a URL a handler endpoint answered (relative to it).
+  resolve(url, base) {
+    const u = new URL(url, new URL(base, location.href))
+    return u.origin === location.origin ? u.pathname + u.search : u.href
+  }
+
+  // Generates an image from the pane's prompt, then inserts it.
+  async generate(button) {
+    const pane = button.closest('[data-slot="atelier-generate"]')
+    if (!pane || !this.config.generateURL || button.dataset.busy === "true") return
+    const prompt = pane.querySelector("[data-atelier-gen-prompt]").value.trim()
+    const status = pane.querySelector("[data-atelier-gen-status]")
+    if (!prompt) {
+      status.textContent = "Describe the image first."
+      return
+    }
+    const [width, height] = pane.querySelector("[data-atelier-gen-size]").value.split("x").map(Number)
+    button.dataset.busy = "true"
+    button.disabled = true
+    status.textContent = "Generating…"
+    const t0 = performance.now()
+    try {
+      const res = await fetch(this.config.generateURL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, width, height }),
+        credentials: "same-origin",
+      })
+      if (!res.ok) throw new Error((await res.text()).trim() || res.statusText)
+      const url = this.resolve((await res.json()).url, this.config.generateURL)
+      status.textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(1)} s.`
+      const thumb = document.createElement("button")
+      thumb.type = "button"
+      thumb.title = prompt
+      thumb.className = "overflow-hidden rounded-md bg-muted hover:ring-2 hover:ring-ring/50"
+      const img = document.createElement("img")
+      img.src = url
+      img.alt = prompt
+      img.className = "aspect-square w-full object-cover"
+      thumb.append(img)
+      thumb.addEventListener("click", () => this.insertImage(url, prompt, width, height))
+      pane.querySelector("[data-atelier-gen-results]").prepend(thumb)
+      this.insertImage(url, prompt, width, height)
+    } catch (err) {
+      status.textContent = "Failed: " + err.message
+    } finally {
+      button.dataset.busy = "false"
+      button.disabled = false
+    }
+  }
+
+  // Inserts an image layer, fit in 60% of the frame and centered.
+  insertImage(url, name, w, h) {
+    const max = Math.min(this.doc.width, this.doc.height) * 0.6
+    const s = Math.min(max / w, max / h)
+    this.addLayer("image", {
+      name: name.slice(0, 40),
+      value: url,
+      vars: { "--at-width": px(w * s), "--at-height": px(h * s), "--at-fit": "cover" },
+    })
+  }
+
   // Wraps the selected layers (siblings) in a new frame sized to their
   // bounds; positions are converted so nothing moves.
   group() {
@@ -1540,7 +1602,7 @@ class Editor {
           body.append("file", file)
           const res = await fetch(this.config.uploadURL, { method: "POST", body, credentials: "same-origin" })
           if (!res.ok) throw new Error("upload: " + res.status)
-          url = (await res.json()).url
+          url = this.resolve((await res.json()).url, this.config.uploadURL)
         } else {
           url = await new Promise((res, rej) => {
             const r = new FileReader()
@@ -1770,6 +1832,8 @@ class Editor {
         }
         return
       }
+      case "generate":
+        return this.generate(el)
       case "insert":
         return this.insertTemplate(JSON.parse(el.dataset.atelierTemplate || "[]"))
       case "align":

@@ -103,8 +103,9 @@ func (s FileStore) Save(_ context.Context, id string, d Document) error {
 
 // Limits bound what Handler accepts.
 type Limits struct {
-	MaxBytes  int64 // request body (default 2 MiB)
-	MaxLayers int   // layers per document (default 1000)
+	MaxBytes       int64 // document request body (default 2 MiB)
+	MaxLayers      int   // layers per document (default 1000)
+	MaxUploadBytes int64 // uploaded image (default 10 MiB)
 }
 
 func (l Limits) withDefaults() Limits {
@@ -114,7 +115,23 @@ func (l Limits) withDefaults() Limits {
 	if l.MaxLayers == 0 {
 		l.MaxLayers = 1000
 	}
+	if l.MaxUploadBytes == 0 {
+		l.MaxUploadBytes = 10 << 20
+	}
 	return l
+}
+
+// HandlerOptions configures Handler.
+type HandlerOptions struct {
+	// Types are the layer types documents may use (DefaultTypes when nil).
+	Types  Types
+	Limits Limits
+	// Media stores uploaded and generated images (uploads and generation
+	// are off without it).
+	Media MediaStore
+	// Generator generates images from prompts (generation is off without
+	// it).
+	Generator ImageGenerator
 }
 
 // Validate checks a document: sizes, unique ids, known types, parents that
@@ -182,41 +199,128 @@ func (ts Types) Validate(d Document, lim Limits) error {
 
 // Handler serves the editor's backend for the documents of a Store:
 //
-//	GET  {prefix}{id}         the document as JSON
-//	POST {prefix}{id}         saves the document (Config.SaveURL)
-//	POST {prefix}render       renders one layer (custom layer types)
+//	GET  {prefix}{id}           the document as JSON
+//	POST {prefix}{id}           saves the document (Config.SaveURL)
+//	POST {prefix}render         renders one layer (Config.RenderURL)
+//	POST {prefix}upload         stores an image (Config.UploadURL)
+//	POST {prefix}generate       generates an image (Config.GenerateURL)
+//	GET  {prefix}media/{name}   serves a stored image
 //
 // Mount it under a prefix and protect it like any write endpoint (session
-// check, CSRF): mux.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, nil, atelier.Limits{}))).
-func Handler(store Store, types Types, lim Limits) http.Handler {
+// check, CSRF):
+//
+//	mux.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, atelier.HandlerOptions{})))
+func Handler(store Store, opts HandlerOptions) http.Handler {
+	types := opts.Types
 	if types == nil {
 		types = DefaultTypes
 	}
-	lim = lim.withDefaults()
+	lim := opts.Limits.withDefaults()
+	// One generation at a time: they share the GPU.
+	gpu := make(chan struct{}, 1)
+	writeJSON := func(w http.ResponseWriter, v any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(v)
+	}
+	store2 := func(w http.ResponseWriter, r *http.Request, data []byte) {
+		t := sniffImage(data)
+		if t == "" {
+			http.Error(w, "not a PNG, JPEG, GIF or WebP image", http.StatusUnsupportedMediaType)
+			return
+		}
+		name, err := opts.Media.Put(r.Context(), data, t)
+		if err != nil {
+			http.Error(w, "store failed", http.StatusInternalServerError)
+			return
+		}
+		// Relative to the handler: the editor resolves it against the URL
+		// it called.
+		writeJSON(w, map[string]string{"url": "media/" + name})
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := strings.Trim(r.URL.Path, "/")
 		switch {
 		case r.Method == http.MethodPost && id == "render":
 			var req struct {
-				Layer    Layer    `json:"layer"`
-				Document Document `json:"document"`
+				Layer Layer `json:"layer"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, lim.MaxBytes)).Decode(&req); err != nil {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return
 			}
-			if _, ok := types.Get(req.Layer.Type); !ok {
+			t, ok := types.Get(req.Layer.Type)
+			if !ok {
 				http.Error(w, "unknown layer type", http.StatusBadRequest)
 				return
 			}
 			// Only the layer's own content: its box and children are the
 			// editor's.
-			t, _ := types.Get(req.Layer.Type)
 			if t.Render == nil {
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 			_ = h.WriteHTTP(w, http.StatusOK, t.Render(req.Layer))
+		case r.Method == http.MethodPost && id == "upload":
+			if opts.Media == nil {
+				http.NotFound(w, r)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, lim.MaxUploadBytes+1<<20)
+			f, _, err := r.FormFile("file")
+			if err != nil {
+				http.Error(w, "expected a multipart file field \"file\"", http.StatusBadRequest)
+				return
+			}
+			defer f.Close()
+			data, err := io.ReadAll(io.LimitReader(f, lim.MaxUploadBytes+1))
+			if err != nil || int64(len(data)) > lim.MaxUploadBytes {
+				http.Error(w, "image too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			store2(w, r, data)
+		case r.Method == http.MethodPost && id == "generate":
+			if opts.Media == nil || opts.Generator == nil {
+				http.NotFound(w, r)
+				return
+			}
+			var req ImageRequest
+			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
+				http.Error(w, "invalid request", http.StatusBadRequest)
+				return
+			}
+			if err := validateImageRequest(req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), generationTimeout)
+			defer cancel()
+			select {
+			case gpu <- struct{}{}:
+			case <-ctx.Done():
+				http.Error(w, "busy", http.StatusServiceUnavailable)
+				return
+			}
+			data, err := opts.Generator.Generate(ctx, req)
+			<-gpu
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			store2(w, r, data)
+		case r.Method == http.MethodGet && strings.HasPrefix(id, "media/"):
+			if opts.Media == nil {
+				http.NotFound(w, r)
+				return
+			}
+			data, t, err := opts.Media.Get(r.Context(), strings.TrimPrefix(id, "media/"))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", t)
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			_, _ = w.Write(data)
 		case !validID.MatchString(id):
 			http.NotFound(w, r)
 		case r.Method == http.MethodGet:
@@ -229,8 +333,7 @@ func Handler(store Store, types Types, lim Limits) http.Handler {
 				http.Error(w, "load failed", http.StatusInternalServerError)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(d)
+			writeJSON(w, d)
 		case r.Method == http.MethodPost:
 			if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 				http.Error(w, "expected application/json", http.StatusUnsupportedMediaType)

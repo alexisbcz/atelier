@@ -18,13 +18,19 @@ import (
 
 func main() {
 	addr := flag.String("addr", "localhost:8090", "listen address")
+	sd := flag.String("sd", "", "stable-diffusion.cpp server URL for image generation (http://127.0.0.1:7860)")
 	flag.Parse()
 	http.Handle(runtime.Prefix, runtime.Handler())
 	http.Handle(atelier.AssetsPrefix, atelier.Assets())
 	// Documents are kept in memory; the editor saves after each change.
 	store := atelier.NewMemoryStore()
 	_ = store.Save(context.Background(), "sample", sample)
-	http.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, types, atelier.Limits{})))
+	opts := atelier.HandlerOptions{Types: types, Media: atelier.NewMemoryMedia()}
+	if *sd != "" {
+		opts.Generator = atelier.SDServer{URL: *sd}
+		generate = "/designs/generate"
+	}
+	http.Handle("/designs/", http.StripPrefix("/designs/", atelier.Handler(store, opts)))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -84,6 +90,9 @@ var badge = atelier.LayerType{
 	},
 }
 
+// generate is the generation endpoint ("" without a generator).
+var generate string
+
 // library holds the templates of the Library tab.
 var library = []atelier.Template{
 	{Name: "Heading", Layers: []atelier.Layer{{ID: "h", Name: "Heading", Type: "text", Value: "Big idea", Vars: map[string]string{
@@ -114,7 +123,7 @@ var types = atelier.Types{atelier.FrameType, atelier.TextType, atelier.ImageType
 
 func editor(doc atelier.Document, readOnly bool) h.Node {
 	return atelier.Designer(atelier.Config{Document: doc, Types: types, Class: "h-svh", ReadOnly: readOnly,
-		SaveURL: "/designs/sample", RenderURL: "/designs/render"},
+		SaveURL: "/designs/sample", RenderURL: "/designs/render", UploadURL: "/designs/upload", GenerateURL: generate},
 		atelier.Header(
 			atelier.PanelToggle(atelier.SideLeft, "Layers", lucide.Layers()),
 			atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu(),
@@ -126,9 +135,11 @@ func editor(doc atelier.Document, readOnly bool) h.Node {
 					h.Div(h.Class("p-2 pb-0"), tabs.List(h.Class("w-full"),
 						tabs.Trigger(tabs.Value("layers"), "Layers"),
 						tabs.Trigger(tabs.Value("library"), "Library"),
+						tabs.Trigger(tabs.Value("generate"), "Generate"),
 					)),
 					tabs.Content(tabs.Value("layers"), atelier.PageSelector(), atelier.PaneLayers()),
 					tabs.Content(tabs.Value("library"), atelier.PaneLibrary(library...)),
+					tabs.Content(tabs.Value("generate"), atelier.PaneGenerate()),
 				),
 			),
 			atelier.Canvas(atelier.Frame(), atelier.CanvasMenu(),
