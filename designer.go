@@ -34,6 +34,11 @@ type Config struct {
 	EditURL string
 	// ReadOnly shows the document without editing.
 	ReadOnly bool
+	// Keys rebinds shortcuts: command name ("undo", "duplicate",
+	// "add:text", ...) to comma-separated key combos ("mod+shift+z, mod+y";
+	// "mod" is ⌘ on Apple platforms and Ctrl elsewhere). An empty value
+	// disables the shortcut.
+	Keys map[string]string
 	// Class adds classes to the root element ("h-svh").
 	Class string
 }
@@ -77,7 +82,7 @@ func Designer(cfg Config, children ...any) h.Node {
 			"type": t.Type, "name": t.Name, "key": t.Key, "container": t.Container, "defaults": t.Defaults,
 		})
 	}
-	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "renderURL": cfg.RenderURL, "uploadURL": cfg.UploadURL, "generateURL": cfg.GenerateURL, "editURL": cfg.EditURL, "readOnly": cfg.ReadOnly})
+	meta, _ := json.Marshal(map[string]any{"types": types, "saveURL": cfg.SaveURL, "keys": cfg.Keys, "renderURL": cfg.RenderURL, "uploadURL": cfg.UploadURL, "generateURL": cfg.GenerateURL, "editURL": cfg.EditURL, "readOnly": cfg.ReadOnly})
 	return h.WithValue(designerKey{}, cfg,
 		h.Div(
 			h.Data("slot", "atelier"),

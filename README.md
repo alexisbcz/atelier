@@ -188,7 +188,12 @@ root.addEventListener("atelier:change", (e) => console.log(e.detail.document))
 | F, T, I | Add a frame, a text or an image |
 | Space + drag | Pan |
 
-On Windows and Linux, use the Control key in place of ⌘.
+On Windows and Linux, use the Control key in place of ⌘. `Config.Keys`
+rebinds or disables any shortcut, by command name:
+
+```go
+atelier.Config{Keys: map[string]string{"duplicate": "mod+shift+d", "add:text": ""}}
+```
 
 ## License
 

@@ -54,6 +54,31 @@ function rotate([x, y], deg) {
   return [x * c - y * s, x * s + y * c]
 }
 
+// The key of an event, from its physical key where it has one (so
+// shift+] is "]" on every layout), lowercased.
+function eventKey(e) {
+  const c = e.code || ""
+  if (/^Key[A-Z]$/.test(c)) return c.slice(3).toLowerCase()
+  if (/^Digit\d$/.test(c)) return c.slice(5)
+  const named = { BracketLeft: "[", BracketRight: "]", Equal: "=", Minus: "-", Backquote: "`", Slash: "/", Period: ".", Comma: "," }
+  return named[c] ?? e.key.toLowerCase()
+}
+
+// matchKey reports whether a keydown matches a combo: "mod" is ⌘ on Apple
+// platforms and Ctrl elsewhere; modifiers must match exactly.
+function matchKey(e, combo) {
+  if (!combo) return false
+  const parts = combo.toLowerCase().split("+")
+  let key = parts.pop()
+  if (key === "" && combo.endsWith("+")) key = "+"
+  const want = new Set(parts)
+  const mod = want.has("mod")
+  const meta = want.has("meta") || (mod && isMac)
+  const ctrl = want.has("ctrl") || (mod && !isMac)
+  if (e.metaKey !== meta || e.ctrlKey !== ctrl || e.shiftKey !== want.has("shift") || e.altKey !== want.has("alt")) return false
+  return eventKey(e) === key || e.key.toLowerCase() === key
+}
+
 // Types the runtime draws itself; others are rendered by the server
 // (config.renderURL).
 const BUILTIN = new Set(["frame", "text", "image"])
@@ -1678,6 +1703,7 @@ class Editor {
     const y0 = num(l.vars?.["--at-y"])
     const start = [e.clientX, e.clientY]
     const ratio = b.w / (b.h || 1)
+    this.snapTargets = this.targets(new Set([l.id]))
     this.track(
       e,
       (ev) => {
@@ -1686,6 +1712,28 @@ class Editor {
         const [dx, dy] = rotate([(ev.clientX - start[0]) / this.zoom, (ev.clientY - start[1]) / this.zoom], -b.r)
         let w = hx ? Math.max(1, b.w + hx * dx) : b.w
         let h = hy ? Math.max(1, b.h + hy * dy) : b.h
+        // Unrotated layers: the dragged edges snap (alt: no snapping).
+        let guides = []
+        if (!b.r && !ev.altKey) {
+          const limit = 6 / this.zoom
+          const near = (v, lines) => lines.reduce((best, l) => (Math.abs(l - v) < Math.abs(best - v) ? l : best), Infinity)
+          if (hx) {
+            const edge = hx > 0 ? b.x + w : b.x + b.w - w
+            const l = near(edge, this.snapTargets.xs)
+            if (Math.abs(l - edge) <= limit) {
+              w = Math.max(1, hx > 0 ? l - b.x : b.x + b.w - l)
+              guides.push(["x", l])
+            }
+          }
+          if (hy) {
+            const edge = hy > 0 ? b.y + h : b.y + b.h - h
+            const l = near(edge, this.snapTargets.ys)
+            if (Math.abs(l - edge) <= limit) {
+              h = Math.max(1, hy > 0 ? l - b.y : b.y + b.h - l)
+              guides.push(["y", l])
+            }
+          }
+        }
         if (ev.shiftKey && hx && hy) {
           // Keep the aspect ratio.
           if (w / h > ratio) h = w / ratio
@@ -1703,9 +1751,13 @@ class Editor {
         l.vars["--at-x"] = px(cx - w / 2)
         l.vars["--at-y"] = px(cy - h / 2)
         this.sync()
+        this.drawGuides(guides)
         this.notify()
       },
-      () => this.end(),
+      () => {
+        this.drawGuides([])
+        this.end()
+      },
     )
   }
 
@@ -1794,23 +1846,14 @@ class Editor {
       e.preventDefault()
       fn()
     }
-    if (mod && (k === "=" || k === "+")) return run(() => this.zoomTo(this.zoom * 1.25))
-    if (mod && k === "-") return run(() => this.zoomTo(this.zoom / 1.25))
-    if (mod && k === "0") return run(() => this.fit())
-    if (this.readOnly) return
-    if (mod && k === "z") return run(() => (e.shiftKey ? this.redo() : this.undo()))
-    if (mod && k === "y") return run(() => this.redo())
-    if (mod && k === "d") return run(() => this.duplicateSelected())
-    if (mod && k === "g") return run(() => (e.shiftKey ? this.ungroup() : this.group()))
-    if (mod && k === "c") return run(() => this.copy())
-    if (mod && k === "x") return run(() => this.cut())
-    if (mod && k === "v") return // the paste event handles it (text or image files)
-    if (mod && k === "]") return run(() => this.reorder(e.shiftKey ? Infinity : 1))
-    if (mod && k === "[") return run(() => this.reorder(e.shiftKey ? -Infinity : -1))
-    if (mod && k === "a") return run(() => this.select(this.doc.layers.filter((l) => !l.parent && this.onPage(l)).map((l) => l.id)))
-    if (mod || e.altKey) return
-    if (k === "escape") return run(() => this.select([]))
-    if (k === "delete" || k === "backspace") return run(() => this.removeSelected())
+    // Viewing shortcuts work in read-only editors too.
+    const viewing = new Set(["zoom-in", "zoom-out", "zoom-fit"])
+    for (const [name, combos] of Object.entries(this.keymap())) {
+      if (!combos || !combos.split(",").some((c) => matchKey(e, c.trim()))) continue
+      if (this.readOnly && !viewing.has(name)) return
+      return run(() => this.command(name, document.activeElement ?? this.root))
+    }
+    if (this.readOnly || mod || e.altKey) return
     const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }
     if (arrows[k] && this.selection.length) {
       const [dx, dy] = arrows[k].map((v) => v * (e.shiftKey ? 10 : 1))
@@ -1825,13 +1868,42 @@ class Editor {
         }),
       )
     }
-    for (const t of this.types.values()) {
-      if (t.key && k === t.key) return run(() => this.addLayer(t.type))
-    }
+
   }
 
-  // Commands from data-atelier-command buttons (toolbar, menus).
+  // Shortcuts: command -> comma-separated key combos ("mod+shift+z"),
+  // config.keys overriding (an empty combo disables one).
+  keymap() {
+    const map = {
+      undo: "mod+z",
+      redo: "mod+shift+z, mod+y",
+      "zoom-in": "mod+=, mod+shift+=",
+      "zoom-out": "mod+-",
+      "zoom-fit": "mod+0",
+      duplicate: "mod+d",
+      "select-all": "mod+a",
+      group: "mod+g",
+      ungroup: "mod+shift+g",
+      copy: "mod+c",
+      cut: "mod+x",
+      forward: "mod+]",
+      backward: "mod+[",
+      front: "mod+shift+]",
+      back: "mod+shift+[",
+      deselect: "escape",
+      delete: "delete, backspace",
+    }
+    for (const t of this.types.values()) if (t.key) map["add:" + t.type] = t.key
+    return { ...map, ...(this.config.keys ?? {}) }
+  }
+
+  // Commands from data-atelier-command buttons (toolbar, menus) and
+  // shortcuts.
   command(name, el) {
+    if (name.startsWith("add:")) return this.readOnly ? undefined : this.addLayer(name.slice(4))
+    if (name === "select-all" && !this.readOnly) {
+      return this.select(this.doc.layers.filter((l) => !l.parent && this.onPage(l)).map((l) => l.id))
+    }
     // A read-only editor only views: zoom, pages and exports.
     const viewing = ["zoom-in", "zoom-out", "zoom-fit", "zoom", "page", "export-png", "export-pdf", "export-json", "shortcuts", "copy"]
     if (this.readOnly && !viewing.includes(name)) return
