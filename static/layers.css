@@ -1,33 +1,198 @@
 /* Layers: every property comes from the layer's custom properties
    (layer.go, Var*), so the server rendering and the editor agree. */
 
+/* Layer properties don't inherit: a layer never takes a value from the
+   frame holding it, and unset properties fall back to their defaults.
+   (The image fit properties do inherit: the <img> inside the layer reads
+   them.) */
+@property --at-width {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-height {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-x {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-y {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-rotate {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-scale-x {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-scale-y {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-z {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-opacity {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-padding {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-radius {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-fill {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-border-width {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-border-color {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-shadow {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-direction {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-align {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-justify {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-gap {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-blur {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-brightness {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-contrast {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-grayscale {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-hue-rotate {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-invert {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-saturate {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-sepia {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-font-family {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-font-size {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-font-weight {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-color {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-line-height {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-letter-spacing {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-text-align {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-font-style {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-decoration {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-case {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-text-shadow {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-stroke-width {
+  syntax: "*";
+  inherits: false;
+}
+@property --at-stroke-color {
+  syntax: "*";
+  inherits: false;
+}
+
 .atelier-layer {
   position: absolute;
   top: 0;
   left: 0;
   box-sizing: border-box;
   display: flex;
-  flex-direction: var(--flex-direction, column);
-  align-items: var(--align-items, stretch);
-  justify-content: var(--justify-content, flex-start);
-  gap: var(--gap, 0px);
-  width: var(--width, auto);
-  height: var(--height, auto);
-  padding: var(--padding, 0px);
+  flex-direction: var(--at-direction, column);
+  align-items: var(--at-align, stretch);
+  justify-content: var(--at-justify, flex-start);
+  gap: var(--at-gap, 0px);
+  width: var(--at-width, auto);
+  height: var(--at-height, auto);
+  padding: var(--at-padding, 0px);
   overflow: hidden;
-  z-index: var(--z-index, 0);
-  opacity: var(--opacity, 1);
-  background: var(--fill, transparent);
-  border: var(--border-width, 0px) solid var(--border-color, transparent);
-  border-radius: var(--radius, 0px);
-  box-shadow: var(--shadow, none);
-  transform: translate(var(--translate-x, 0px), var(--translate-y, 0px)) rotate(var(--rotate, 0deg))
-    scale(var(--scale-x, 1), var(--scale-y, 1));
+  z-index: var(--at-z, 0);
+  opacity: var(--at-opacity, 1);
+  background: var(--at-fill, transparent);
+  border: var(--at-border-width, 0px) solid var(--at-border-color, transparent);
+  border-radius: var(--at-radius, 0px);
+  box-shadow: var(--at-shadow, none);
+  transform: translate(var(--at-x, 0px), var(--at-y, 0px)) rotate(var(--at-rotate, 0deg))
+    scale(var(--at-scale-x, 1), var(--at-scale-y, 1));
   transform-origin: center;
-  filter: blur(var(--filter-blur, 0px)) brightness(var(--filter-brightness, 100%))
-    contrast(var(--filter-contrast, 100%)) grayscale(var(--filter-grayscale, 0%))
-    hue-rotate(var(--filter-hue-rotate, 0deg)) invert(var(--filter-invert, 0%))
-    saturate(var(--filter-saturate, 100%)) sepia(var(--filter-sepia, 0%));
+  filter: blur(var(--at-blur, 0px)) brightness(var(--at-brightness, 100%))
+    contrast(var(--at-contrast, 100%)) grayscale(var(--at-grayscale, 0%))
+    hue-rotate(var(--at-hue-rotate, 0deg)) invert(var(--at-invert, 0%))
+    saturate(var(--at-saturate, 100%)) sepia(var(--at-sepia, 0%));
 }
 
 /* Children of a frame are positioned inside it. */
@@ -36,19 +201,19 @@
 }
 
 .atelier-layer-text {
-  justify-content: var(--align-items, center);
-  font-family: var(--font-family, inherit);
-  font-size: var(--font-size, 16px);
-  font-weight: var(--font-weight, 400);
-  font-style: var(--font-style, normal);
-  color: var(--color, #000000);
-  line-height: var(--line-height, 1.2);
-  letter-spacing: var(--letter-spacing, 0px);
-  text-align: var(--text-align, left);
-  text-decoration: var(--text-decoration, none);
-  text-transform: var(--text-transform, none);
-  text-shadow: var(--text-shadow, none);
-  -webkit-text-stroke: var(--text-stroke-width, 0px) var(--text-stroke-color, transparent);
+  justify-content: var(--at-align, center);
+  font-family: var(--at-font-family, inherit);
+  font-size: var(--at-font-size, 16px);
+  font-weight: var(--at-font-weight, 400);
+  font-style: var(--at-font-style, normal);
+  color: var(--at-color, #000000);
+  line-height: var(--at-line-height, 1.2);
+  letter-spacing: var(--at-letter-spacing, 0px);
+  text-align: var(--at-text-align, left);
+  text-decoration: var(--at-decoration, none);
+  text-transform: var(--at-case, none);
+  text-shadow: var(--at-text-shadow, none);
+  -webkit-text-stroke: var(--at-stroke-width, 0px) var(--at-stroke-color, transparent);
   overflow-wrap: break-word;
 }
 
@@ -62,8 +227,8 @@
 .atelier-layer-image [data-slot="atelier-image-empty"] {
   width: 100%;
   height: 100%;
-  object-fit: var(--object-fit, cover);
-  object-position: var(--object-position-x, 50%) var(--object-position-y, 50%);
+  object-fit: var(--at-fit, cover);
+  object-position: var(--at-fit-x, 50%) var(--at-fit-y, 50%);
   pointer-events: none;
   user-select: none;
 }

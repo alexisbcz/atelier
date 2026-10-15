@@ -27,7 +27,7 @@ type Layer struct {
 	// Value is the layer's content: the text of a text layer, the URL of an
 	// image layer. Layer types decide what it means.
 	Value string `json:"value,omitempty"`
-	// Vars are the layer's CSS custom properties ("--width": "320px").
+	// Vars are the layer's CSS custom properties ("--at-width": "320px").
 	// See the Var* constants for the properties the stylesheet maps.
 	Vars map[string]string `json:"vars,omitempty"`
 	// Parent is the id of the frame holding the layer ("" for the root).
@@ -43,49 +43,49 @@ type Layer struct {
 // The CSS custom properties the stylesheet maps to a layer's box and
 // styles. Lengths carry their unit ("120px"), angles theirs ("15deg").
 const (
-	VarWidth       = "--width"
-	VarHeight      = "--height"
-	VarX           = "--translate-x"
-	VarY           = "--translate-y"
-	VarRotate      = "--rotate"
-	VarScaleX      = "--scale-x" // -1 flips horizontally
-	VarScaleY      = "--scale-y" // -1 flips vertically
-	VarZIndex      = "--z-index"
-	VarOpacity     = "--opacity"
-	VarPadding     = "--padding"
-	VarRadius      = "--radius"
-	VarFill        = "--fill"
-	VarBorderWidth = "--border-width"
-	VarBorderColor = "--border-color"
-	VarShadow      = "--shadow"
-	VarFlexDir     = "--flex-direction"
-	VarAlignItems  = "--align-items"
-	VarJustify     = "--justify-content"
-	VarGap         = "--gap"
-	VarBlur        = "--filter-blur"
-	VarBrightness  = "--filter-brightness"
-	VarContrast    = "--filter-contrast"
-	VarGrayscale   = "--filter-grayscale"
-	VarHueRotate   = "--filter-hue-rotate"
-	VarInvert      = "--filter-invert"
-	VarSaturate    = "--filter-saturate"
-	VarSepia       = "--filter-sepia"
-	VarFontFamily  = "--font-family"
-	VarFontSize    = "--font-size"
-	VarFontWeight  = "--font-weight"
-	VarColor       = "--color"
-	VarLineHeight  = "--line-height"
-	VarLetterSpace = "--letter-spacing"
-	VarTextAlign   = "--text-align"
-	VarFontStyle   = "--font-style"
-	VarDecoration  = "--text-decoration"
-	VarTransform   = "--text-transform"
-	VarTextShadow  = "--text-shadow"
-	VarStrokeWidth = "--text-stroke-width"
-	VarStrokeColor = "--text-stroke-color"
-	VarObjectFit   = "--object-fit"
-	VarObjectPosX  = "--object-position-x"
-	VarObjectPosY  = "--object-position-y"
+	VarWidth       = "--at-width"
+	VarHeight      = "--at-height"
+	VarX           = "--at-x"
+	VarY           = "--at-y"
+	VarRotate      = "--at-rotate"
+	VarScaleX      = "--at-scale-x" // -1 flips horizontally
+	VarScaleY      = "--at-scale-y" // -1 flips vertically
+	VarZIndex      = "--at-z"
+	VarOpacity     = "--at-opacity"
+	VarPadding     = "--at-padding"
+	VarRadius      = "--at-radius"
+	VarFill        = "--at-fill"
+	VarBorderWidth = "--at-border-width"
+	VarBorderColor = "--at-border-color"
+	VarShadow      = "--at-shadow"
+	VarFlexDir     = "--at-direction"
+	VarAlignItems  = "--at-align"
+	VarJustify     = "--at-justify"
+	VarGap         = "--at-gap"
+	VarBlur        = "--at-blur"
+	VarBrightness  = "--at-brightness"
+	VarContrast    = "--at-contrast"
+	VarGrayscale   = "--at-grayscale"
+	VarHueRotate   = "--at-hue-rotate"
+	VarInvert      = "--at-invert"
+	VarSaturate    = "--at-saturate"
+	VarSepia       = "--at-sepia"
+	VarFontFamily  = "--at-font-family"
+	VarFontSize    = "--at-font-size"
+	VarFontWeight  = "--at-font-weight"
+	VarColor       = "--at-color"
+	VarLineHeight  = "--at-line-height"
+	VarLetterSpace = "--at-letter-spacing"
+	VarTextAlign   = "--at-text-align"
+	VarFontStyle   = "--at-font-style"
+	VarDecoration  = "--at-decoration"
+	VarTransform   = "--at-case"
+	VarTextShadow  = "--at-text-shadow"
+	VarStrokeWidth = "--at-stroke-width"
+	VarStrokeColor = "--at-stroke-color"
+	VarObjectFit   = "--at-fit"
+	VarObjectPosX  = "--at-fit-x"
+	VarObjectPosY  = "--at-fit-y"
 )
 
 // Var returns a custom property of the layer ("" when unset).

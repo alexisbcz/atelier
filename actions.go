@@ -10,7 +10,7 @@ import (
 // Actions edit the selected layers. Each control is bound to one custom
 // property with data attributes the runtime reads:
 //
-//	data-atelier-var="--width"   the property
+//	data-atelier-var="--at-width"   the property
 //	data-atelier-unit="px"       appended to the number typed ("" unitless)
 //	data-atelier-set="center"    buttons: the value they set (toggles)
 //
@@ -60,7 +60,7 @@ func Color(prop, placeholder string) h.Node {
 	)
 }
 
-// Clear is a button removing properties ("--fill").
+// Clear is a button removing properties ("--at-fill").
 func Clear(props ...string) h.Node {
 	b := h.Button(h.Type("button"), h.Class(iconButtonClass), h.Aria("label", "Clear"),
 		h.Data("atelier-command", "clear"), lucide.X())

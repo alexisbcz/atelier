@@ -72,6 +72,7 @@ func Designer(cfg Config, children ...any) h.Node {
 			h.Script(h.Type("application/json"), h.Data("atelier-document", ""), h.UnsafeJS(doc)),
 			h.Script(h.Type("application/json"), h.Data("atelier-config", ""), h.UnsafeJS(meta)),
 			h.Group(children...),
+			shortcutsDialog(cfg.types()),
 		),
 	)
 }

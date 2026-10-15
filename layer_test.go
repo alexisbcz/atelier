@@ -25,7 +25,7 @@ func TestStyleSortedAndSanitized(t *testing.T) {
 		"not-a-var": "1",
 	}}
 	got := l.Style()
-	want := "--evil: red background: url(x); --translate-x: 10px; --width: 320px"
+	want := "--at-width: 320px; --at-x: 10px; --evil: red background: url(x)"
 	if got != want {
 		t.Errorf("Style() = %q, want %q", got, want)
 	}
@@ -54,7 +54,7 @@ func TestRenderDocument(t *testing.T) {
 	}}
 	s := render(t, Types(DefaultTypes).RenderLayers(d))
 	for _, want := range []string{
-		`<div class="atelier-layer atelier-layer-frame" data-slot="atelier-layer" data-layer-id="f" data-layer-type="frame" style="--width: 500px">`,
+		`<div class="atelier-layer atelier-layer-frame" data-slot="atelier-layer" data-layer-id="f" data-layer-type="frame" style="--at-width: 500px">`,
 		`<div data-slot="atelier-text">&lt;b&gt;Hi&lt;/b&gt;</div>`,
 		`src="https://example.com/a.jpg"`,
 	} {
@@ -83,7 +83,7 @@ func TestNewFromDefaults(t *testing.T) {
 }
 
 func TestParseDocument(t *testing.T) {
-	d, err := ParseDocument([]byte(`{"width":800,"height":600,"layers":[{"id":"a","name":"A","type":"text","value":"hi","vars":{"--width":"10px"}}]}`))
+	d, err := ParseDocument([]byte(`{"width":800,"height":600,"layers":[{"id":"a","name":"A","type":"text","value":"hi","vars":{"--at-width":"10px"}}]}`))
 	if err != nil || len(d.Layers) != 1 || d.Layers[0].Px(VarWidth) != 10 {
 		t.Fatalf("ParseDocument = %+v, %v", d, err)
 	}

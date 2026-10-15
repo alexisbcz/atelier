@@ -56,9 +56,9 @@ var sample = atelier.Document{Width: 1080, Height: 1350, Layers: []atelier.Layer
 
 func editor() h.Node {
 	return atelier.Designer(atelier.Config{Document: sample, Class: "h-svh"},
-		atelier.Header(),
+		atelier.Header(atelier.MainMenu(), h.Div(h.Class("flex-1")), atelier.ExportMenu()),
 		atelier.Content(
-			atelier.Panel(atelier.SideLeft),
+			atelier.Panel(atelier.SideLeft, atelier.PaneLayers()),
 			atelier.Canvas(atelier.Frame(),
 				atelier.Toolbar(
 					atelier.ToolbarGroup(
@@ -71,6 +71,8 @@ func editor() h.Node {
 						atelier.ToolbarButton("Text", lucide.Type(), h.Data("atelier-command", "add"), h.Data("atelier-type", "text")),
 						atelier.ToolbarButton("Image", lucide.Image(), h.Data("atelier-command", "add"), h.Data("atelier-type", "image")),
 					),
+					atelier.ToolbarSeparator(),
+					atelier.ToolbarGroup(atelier.ToolbarZoom()),
 				),
 			),
 			atelier.Panel(atelier.SideRight,

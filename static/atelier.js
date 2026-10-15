@@ -19,22 +19,22 @@ const HISTORY = 100
 // The effective value of unset properties, as shown by the actions (the
 // stylesheet's fallbacks).
 const DEFAULTS = {
-  "--opacity": "1",
-  "--filter-blur": "0",
-  "--filter-brightness": "100",
-  "--filter-contrast": "100",
-  "--filter-grayscale": "0",
-  "--filter-hue-rotate": "0",
-  "--filter-invert": "0",
-  "--filter-saturate": "100",
-  "--filter-sepia": "0",
-  "--padding": "0",
-  "--radius": "0",
-  "--letter-spacing": "0",
-  "--line-height": "1.2",
-  "--font-weight": "400",
-  "--text-align": "left",
-  "--object-fit": "cover",
+  "--at-opacity": "1",
+  "--at-blur": "0",
+  "--at-brightness": "100",
+  "--at-contrast": "100",
+  "--at-grayscale": "0",
+  "--at-hue-rotate": "0",
+  "--at-invert": "0",
+  "--at-saturate": "100",
+  "--at-sepia": "0",
+  "--at-padding": "0",
+  "--at-radius": "0",
+  "--at-letter-spacing": "0",
+  "--at-line-height": "1.2",
+  "--at-font-weight": "400",
+  "--at-text-align": "left",
+  "--at-fit": "cover",
 }
 
 const num = (v, d = 0) => {
@@ -192,10 +192,10 @@ class Editor {
     l.vars ??= {}
     Object.assign(l, init)
     // Centered in the frame.
-    const w = num(l.vars["--width"], 200)
-    const h = num(l.vars["--height"], 100)
-    l.vars["--translate-x"] ??= px((this.doc.width - w) / 2)
-    l.vars["--translate-y"] ??= px((this.doc.height - h) / 2)
+    const w = num(l.vars["--at-width"], 200)
+    const h = num(l.vars["--at-height"], 100)
+    l.vars["--at-x"] ??= px((this.doc.width - w) / 2)
+    l.vars["--at-y"] ??= px((this.doc.height - h) / 2)
     this.commit((d) => d.layers.push(l))
     this.select([l.id])
     return l
@@ -226,8 +226,8 @@ class Editor {
         const c = clone(l)
         c.id = uid()
         c.name = l.name + " copy"
-        c.vars["--translate-x"] = px(num(l.vars["--translate-x"]) + 20)
-        c.vars["--translate-y"] = px(num(l.vars["--translate-y"]) + 20)
+        c.vars["--at-x"] = px(num(l.vars["--at-x"]) + 20)
+        c.vars["--at-y"] = px(num(l.vars["--at-y"]) + 20)
         d.layers.push(c)
         copies.push(c.id)
       }
@@ -373,18 +373,18 @@ class Editor {
   // The layer's box in frame coordinates: its parents' offsets plus its
   // own translate (rotation of parents is not composed).
   box(l) {
-    let x = num(l.vars?.["--translate-x"])
-    let y = num(l.vars?.["--translate-y"])
+    let x = num(l.vars?.["--at-x"])
+    let y = num(l.vars?.["--at-y"])
     let p = l.parent ? this.layer(l.parent) : null
     while (p) {
-      x += num(p.vars?.["--translate-x"])
-      y += num(p.vars?.["--translate-y"])
+      x += num(p.vars?.["--at-x"])
+      y += num(p.vars?.["--at-y"])
       p = p.parent ? this.layer(p.parent) : null
     }
     const el = this.element(l.id)
-    const w = num(l.vars?.["--width"], el ? el.offsetWidth : 0)
-    const h = num(l.vars?.["--height"], el ? el.offsetHeight : 0)
-    return { x, y, w, h, r: num(l.vars?.["--rotate"]) }
+    const w = num(l.vars?.["--at-width"], el ? el.offsetWidth : 0)
+    const h = num(l.vars?.["--at-height"], el ? el.offsetHeight : 0)
+    return { x, y, w, h, r: num(l.vars?.["--at-rotate"]) }
   }
 
   // Canvas (client) point -> frame coordinates.
@@ -534,14 +534,236 @@ class Editor {
     on(this.canvas, "pointerdown", (e) => this.onPointerDown(e))
     on(this.canvas, "dblclick", (e) => this.onDoubleClick(e))
     on(window, "keydown", (e) => this.onKey(e))
-    on(this.root, "click", (e) => {
+    // Commands come from buttons in the editor and from menu items, which
+    // menus render in portals outside it: those go to the only editor of
+    // the page, or to the one their data-atelier-for names.
+    on(document, "click", (e) => {
       const cmd = e.target.closest?.("[data-atelier-command]")
-      if (cmd && this.root.contains(cmd)) this.command(cmd.dataset.atelierCommand, cmd)
+      if (!cmd) return
+      const owner = cmd.closest('[data-slot="atelier"]')
+      if (owner ? owner !== this.root : !this.ownsPortal(cmd)) return
+      this.command(cmd.dataset.atelierCommand, cmd)
     })
+    this.cleanups.push(this.subscribe(() => this.updateChrome()))
     this.root.atelier = this
     this.bindControls()
     this.notify()
     return () => this.cleanups.forEach((fn) => fn())
+  }
+
+  ownsPortal(cmd) {
+    if (cmd.dataset.atelierFor) return cmd.dataset.atelierFor === this.root.id
+    return document.querySelectorAll('[data-slot="atelier"]').length === 1
+  }
+
+  // Zoom label, history buttons, the layer tree.
+  updateChrome() {
+    for (const el of this.root.querySelectorAll("[data-atelier-zoom-label]")) el.textContent = Math.round(this.zoom * 100) + "%"
+    for (const el of this.root.querySelectorAll('[data-atelier-command="undo"]')) el.disabled = !this.past.length
+    for (const el of this.root.querySelectorAll('[data-atelier-command="redo"]')) el.disabled = !this.future.length
+    this.renderTree()
+  }
+
+  icon(name) {
+    const t = this.root.querySelector(`template[data-atelier-icon="${CSS.escape(name)}"]`)
+    return t ? t.content.firstElementChild.cloneNode(true) : document.createElement("span")
+  }
+
+  // The layer tree lists the topmost layer first, children under their
+  // frame.
+  renderTree() {
+    const list = this.root.querySelector("[data-atelier-layer-list]")
+    if (!list || this.renamingTree) return
+    const rows = []
+    const walk = (parent, depth) => {
+      const kids = this.doc.layers.filter((l) => (l.parent ?? "") === parent).reverse()
+      for (const l of kids) {
+        rows.push([l, depth])
+        walk(l.id, depth + 1)
+      }
+    }
+    walk("", 0)
+    const key = JSON.stringify(rows.map(([l, d]) => [l.id, l.name, l.type, !!l.hidden, !!l.locked, d])) + this.selection.join()
+    if (key === this.treeKey) return
+    this.treeKey = key
+    list.replaceChildren()
+    for (const [l, depth] of rows) {
+      const row = document.createElement("div")
+      row.dataset.layerRow = l.id
+      row.dataset.selected = String(this.selection.includes(l.id))
+      row.className =
+        "group flex h-8 cursor-default items-center gap-2 rounded-md pr-1 text-xs hover:bg-accent/60 data-[selected=true]:bg-accent data-[hidden=true]:opacity-50"
+      row.dataset.hidden = String(!!l.hidden)
+      row.style.paddingLeft = 8 + depth * 14 + "px"
+      const ic = this.icon(l.type)
+      ic.classList.add("size-3.5", "shrink-0", "text-muted-foreground")
+      const name = document.createElement("span")
+      name.className = "min-w-0 flex-1 truncate"
+      name.textContent = l.name || l.type
+      const toggle = (kind, on, offIcon, onIcon, label) => {
+        const b = document.createElement("button")
+        b.type = "button"
+        b.dataset.layerToggle = kind
+        b.ariaLabel = label
+        b.className =
+          "inline-flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100 data-[on=true]:opacity-100 [&_svg]:size-3.5"
+        b.dataset.on = String(on)
+        b.append(this.icon(on ? onIcon : offIcon))
+        return b
+      }
+      row.append(
+        ic,
+        name,
+        toggle("locked", !!l.locked, "@unlock", "@lock", l.locked ? "Unlock" : "Lock"),
+        toggle("hidden", !!l.hidden, "@eye", "@eye-off", l.hidden ? "Show" : "Hide"),
+      )
+      list.append(row)
+    }
+    if (!list.dataset.bound) {
+      list.dataset.bound = "true"
+      list.addEventListener("click", (e) => {
+        const row = e.target.closest("[data-layer-row]")
+        if (!row) return
+        const id = row.dataset.layerRow
+        const t = e.target.closest("[data-layer-toggle]")
+        if (t) {
+          const kind = t.dataset.layerToggle
+          this.commit((d) => {
+            const l = d.layers.find((x) => x.id === id)
+            if (l) l[kind] = !l[kind] || undefined
+          })
+          if (kind !== "hidden" || !this.layer(id)?.hidden) return
+          this.select(this.selection.filter((x) => x !== id))
+          return
+        }
+        const l = this.layer(id)
+        if (!l) return
+        // The tree selects hidden and locked layers too.
+        this.selection = e.shiftKey
+          ? this.selection.includes(id)
+            ? this.selection.filter((x) => x !== id)
+            : [...this.selection, id]
+          : [id]
+        this.drawOverlay()
+        this.notify()
+      })
+      list.addEventListener("dblclick", (e) => {
+        const row = e.target.closest("[data-layer-row]")
+        const name = row?.querySelector("span.truncate")
+        if (!name) return
+        const l = this.layer(row.dataset.layerRow)
+        const input = document.createElement("input")
+        input.value = l.name ?? ""
+        input.className = "h-6 min-w-0 flex-1 rounded bg-background px-1 text-xs outline-none ring-2 ring-ring/50"
+        this.renamingTree = true
+        name.replaceWith(input)
+        input.focus()
+        input.select()
+        const done = (save) => {
+          if (!this.renamingTree) return
+          this.renamingTree = false
+          this.treeKey = null
+          if (save && input.value.trim() && input.value !== l.name) {
+            this.commit((d) => (d.layers.find((x) => x.id === l.id).name = input.value.trim()))
+          } else this.renderTree()
+        }
+        input.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") done(true)
+          if (ev.key === "Escape") done(false)
+          ev.stopPropagation()
+        })
+        input.addEventListener("blur", () => done(true))
+      })
+    }
+  }
+
+  // --- export -------------------------------------------------------------
+
+  download(blob, name) {
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = name
+    document.body.append(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+
+  stylesheetText() {
+    return Promise.all(
+      [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) =>
+        fetch(l.href)
+          .then((r) => (r.ok ? r.text() : ""))
+          .catch(() => ""),
+      ),
+    ).then((parts) => parts.join("\n"))
+  }
+
+  // A copy of the frame with images inlined as data URLs.
+  async frameCopy() {
+    const copy = this.frame.cloneNode(true)
+    copy.style.transform = ""
+    // Outside the page (an SVG image, a print window) nothing is inherited
+    // from the page's body: carry the frame's own text defaults.
+    const cs = getComputedStyle(this.frame)
+    for (const prop of ["font-family", "font-size", "line-height", "color", "-webkit-font-smoothing"]) {
+      copy.style.setProperty(prop, cs.getPropertyValue(prop))
+    }
+    for (const img of copy.querySelectorAll("img")) {
+      try {
+        const blob = await (await fetch(img.src, { mode: "cors" })).blob()
+        img.src = await new Promise((res) => {
+          const r = new FileReader()
+          r.onload = () => res(r.result)
+          r.readAsDataURL(blob)
+        })
+      } catch {
+        // Cross-origin without CORS: the image is left out of the export.
+      }
+    }
+    return copy
+  }
+
+  async exportPNG(scale = 2) {
+    const [css, copy] = await Promise.all([this.stylesheetText(), this.frameCopy()])
+    const { width, height } = this.doc
+    copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml")
+    const html = new XMLSerializer().serializeToString(copy)
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">` +
+      `<style><![CDATA[${css.replace(/]]>/g, "")}]]></style>${html}</div></foreignObject></svg>`
+    const img = new Image()
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)
+    await img.decode()
+    const canvas = document.createElement("canvas")
+    canvas.width = width * scale
+    canvas.height = height * scale
+    const ctx = canvas.getContext("2d")
+    ctx.scale(scale, scale)
+    ctx.drawImage(img, 0, 0)
+    canvas.toBlob((blob) => blob && this.download(blob, "design.png"), "image/png")
+  }
+
+  async exportPDF() {
+    const [css, copy] = await Promise.all([this.stylesheetText(), this.frameCopy()])
+    const { width, height } = this.doc
+    const w = window.open("", "_blank")
+    if (!w) return
+    w.document.write(
+      `<!doctype html><html><head><title>Design</title><style>${css}</style>` +
+        `<style>@page{size:${width}px ${height}px;margin:0}html,body{margin:0;padding:0}</style></head><body></body></html>`,
+    )
+    w.document.close()
+    w.document.body.append(w.document.importNode(copy, true))
+    setTimeout(() => {
+      w.focus()
+      w.print()
+    }, 300)
+  }
+
+  exportJSON() {
+    this.download(new Blob([JSON.stringify(this.doc, null, 2)], { type: "application/json" }), "design.json")
   }
 
   fitOnce() {
@@ -621,7 +843,7 @@ class Editor {
 
   dragMove(e) {
     const start = [e.clientX, e.clientY]
-    const origin = this.selected().map((l) => [l.id, num(l.vars?.["--translate-x"]), num(l.vars?.["--translate-y"])])
+    const origin = this.selected().map((l) => [l.id, num(l.vars?.["--at-x"]), num(l.vars?.["--at-y"])])
     let moved = false
     this.track(
       e,
@@ -635,8 +857,8 @@ class Editor {
           const l = this.layer(id)
           if (!l) continue
           l.vars ??= {}
-          l.vars["--translate-x"] = px(x + dx)
-          l.vars["--translate-y"] = px(y + dy)
+          l.vars["--at-x"] = px(x + dx)
+          l.vars["--at-y"] = px(y + dy)
         }
         this.sync()
         this.notify()
@@ -649,8 +871,8 @@ class Editor {
     const l = this.selected()[0]
     if (!l) return
     const b = this.box(l)
-    const x0 = num(l.vars?.["--translate-x"])
-    const y0 = num(l.vars?.["--translate-y"])
+    const x0 = num(l.vars?.["--at-x"])
+    const y0 = num(l.vars?.["--at-y"])
     const start = [e.clientX, e.clientY]
     const ratio = b.w / (b.h || 1)
     this.track(
@@ -673,10 +895,10 @@ class Editor {
         const cx = x0 + b.w / 2 + sx
         const cy = y0 + b.h / 2 + sy
         l.vars ??= {}
-        l.vars["--width"] = px(w)
-        l.vars["--height"] = px(h)
-        l.vars["--translate-x"] = px(cx - w / 2)
-        l.vars["--translate-y"] = px(cy - h / 2)
+        l.vars["--at-width"] = px(w)
+        l.vars["--at-height"] = px(h)
+        l.vars["--at-x"] = px(cx - w / 2)
+        l.vars["--at-y"] = px(cy - h / 2)
         this.sync()
         this.notify()
       },
@@ -700,8 +922,8 @@ class Editor {
         deg = ((deg % 360) + 360) % 360
         if (deg > 180) deg -= 360
         l.vars ??= {}
-        if (Math.abs(deg) < 0.01) delete l.vars["--rotate"]
-        else l.vars["--rotate"] = round(deg) + "deg"
+        if (Math.abs(deg) < 0.01) delete l.vars["--at-rotate"]
+        else l.vars["--at-rotate"] = round(deg) + "deg"
         this.sync()
         this.notify()
       },
@@ -788,8 +1010,8 @@ class Editor {
           for (const id of this.selection) {
             const l = d.layers.find((x) => x.id === id)
             l.vars ??= {}
-            l.vars["--translate-x"] = px(num(l.vars["--translate-x"]) + dx)
-            l.vars["--translate-y"] = px(num(l.vars["--translate-y"]) + dy)
+            l.vars["--at-x"] = px(num(l.vars["--at-x"]) + dx)
+            l.vars["--at-y"] = px(num(l.vars["--at-y"]) + dy)
           }
         }),
       )
@@ -822,18 +1044,26 @@ class Editor {
         return this.duplicateSelected()
       case "deselect":
         return this.select([])
+      case "export-png":
+        return this.exportPNG()
+      case "export-pdf":
+        return this.exportPDF()
+      case "export-json":
+        return this.exportJSON()
+      case "shortcuts":
+        return this.root.querySelector("dialog[data-atelier-shortcuts]")?.showModal()
       case "clear":
         return this.setVars(Object.fromEntries((el.dataset.atelierProps ?? "").split(/\s+/).filter(Boolean).map((p) => [p, ""])))
       case "rotate": {
         const l = this.selected()[0]
         if (!l) return
-        let deg = (num(l.vars?.["--rotate"]) + num(el.dataset.atelierDegrees)) % 360
+        let deg = (num(l.vars?.["--at-rotate"]) + num(el.dataset.atelierDegrees)) % 360
         if (deg > 180) deg -= 360
         if (deg <= -180) deg += 360
-        return this.setVars({ "--rotate": deg ? deg + "deg" : "" })
+        return this.setVars({ "--at-rotate": deg ? deg + "deg" : "" })
       }
       case "flip": {
-        const prop = el.dataset.atelierAxis === "y" ? "--scale-y" : "--scale-x"
+        const prop = el.dataset.atelierAxis === "y" ? "--at-scale-y" : "--at-scale-x"
         const l = this.selected()[0]
         if (!l) return
         return this.setVars({ [prop]: num(l.vars?.[prop], 1) < 0 ? "" : "-1" })
@@ -854,13 +1084,13 @@ class Editor {
     if (prop in DEFAULTS) return DEFAULTS[prop]
     const b = this.box(l)
     switch (prop) {
-      case "--width":
+      case "--at-width":
         return String(round(b.w))
-      case "--height":
+      case "--at-height":
         return String(round(b.h))
-      case "--translate-x":
-      case "--translate-y":
-      case "--rotate":
+      case "--at-x":
+      case "--at-y":
+      case "--at-rotate":
         return "0"
     }
     return ""
