@@ -89,6 +89,7 @@ const (
 	VarObjectFit   = "--at-fit"
 	VarObjectPosX  = "--at-fit-x"
 	VarObjectPosY  = "--at-fit-y"
+	VarImageZoom   = "--at-img-zoom" // crop: zoom into the image (1 = none)
 )
 
 // Var returns a custom property of the layer ("" when unset).

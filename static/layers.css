@@ -3,8 +3,8 @@
 
 /* Layer properties don't inherit: a layer never takes a value from the
    frame holding it, and unset properties fall back to their defaults.
-   (The image fit properties do inherit: the <img> inside the layer reads
-   them.) */
+   (The image fit and crop properties do inherit: the <img> inside the
+   layer reads them.) */
 @property --at-width {
   syntax: "*";
   inherits: false;
@@ -231,6 +231,9 @@
   height: 100%;
   object-fit: var(--at-fit, cover);
   object-position: var(--at-fit-x, 50%) var(--at-fit-y, 50%);
+  /* Crop: zoom in around the focus point. */
+  transform: scale(var(--at-img-zoom, 1));
+  transform-origin: var(--at-fit-x, 50%) var(--at-fit-y, 50%);
   pointer-events: none;
   user-select: none;
 }

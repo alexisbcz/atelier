@@ -171,6 +171,7 @@ func editor(doc atelier.Document, readOnly bool) h.Node {
 					atelier.ActionFontStyle(), atelier.ActionTextDecoration(), atelier.ActionTextTransform(),
 					atelier.ActionTextShadow(), atelier.ActionTextStroke()),
 				atelier.Pane("Image", []string{"image"}, atelier.ActionImageURL(), atelier.ActionImageFit()),
+				atelier.Pane("Crop", []string{"image"}, atelier.ActionImageCrop()),
 				atelier.Pane("Edit with AI", []string{"image"}, atelier.ActionImageEdit()),
 				atelier.Pane("Filters", []string{"image"}, atelier.ActionFilters()),
 			),

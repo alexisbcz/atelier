@@ -35,6 +35,9 @@ const DEFAULTS = {
   "--at-font-weight": "400",
   "--at-text-align": "left",
   "--at-fit": "cover",
+  "--at-img-zoom": "1",
+  "--at-fit-x": "50",
+  "--at-fit-y": "50",
 }
 
 const num = (v, d = 0) => {

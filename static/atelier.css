@@ -1333,6 +1333,8 @@
   height: 100%;
   object-fit: var(--at-fit, cover);
   object-position: var(--at-fit-x, 50%) var(--at-fit-y, 50%);
+  transform: scale(var(--at-img-zoom, 1));
+  transform-origin: var(--at-fit-x, 50%) var(--at-fit-y, 50%);
   pointer-events: none;
   user-select: none;
 }

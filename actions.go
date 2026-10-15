@@ -355,3 +355,13 @@ func ActionUnits() h.Node {
 				h.Aria("label", "DPI"), h.Attr("autocomplete", "off")))),
 	)
 }
+
+// ActionImageCrop crops the image in its box: zoom in, and move the focus
+// point.
+func ActionImageCrop() h.Node {
+	return h.Group(
+		Action("Zoom", Slider(VarImageZoom, "", 1, 4, 0.05)),
+		Action("Focus X", Slider(VarObjectPosX, "%", 0, 100, 1)),
+		Action("Focus Y", Slider(VarObjectPosY, "%", 0, 100, 1)),
+	)
+}
